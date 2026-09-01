@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>JARVIS VR HUD - Compact</title>
+  <title>JARVIS VR HUD - Multi-Lens</title>
   <style>
     * {
       box-sizing: border-box;
@@ -28,14 +28,15 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      gap: 20px;
+      gap: 15px;
+      padding: 20px;
     }
     .btn {
       background: rgba(0, 240, 255, 0.1);
       border: 2px solid #00f0ff;
       color: #00f0ff;
-      padding: 15px 30px;
-      font-size: 1.2rem;
+      padding: 12px 24px;
+      font-size: 1.1rem;
       font-weight: bold;
       border-radius: 8px;
       cursor: pointer;
@@ -46,6 +47,53 @@
     .btn:active {
       background: #00f0ff;
       color: #000;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      background: rgba(0, 240, 255, 0.05);
+      padding: 12px 20px;
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      border-radius: 6px;
+      width: 90%;
+      max-width: 400px;
+    }
+    label {
+      font-size: 0.85rem;
+      letter-spacing: 1px;
+      color: #aaa;
+    }
+    select, button.sub-btn {
+      background: #000;
+      color: #00f0ff;
+      border: 1px solid #00f0ff;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      border-radius: 4px;
+      width: 100%;
+      text-align: center;
+    }
+    .lens-toggle {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+    .lens-btn {
+      flex: 1;
+      background: rgba(0, 240, 255, 0.1);
+      border: 1px solid #00f0ff;
+      color: #00f0ff;
+      padding: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .lens-btn.active {
+      background: #00f0ff;
+      color: #000;
+      font-weight: bold;
     }
     #vr-container {
       display: flex;
@@ -67,11 +115,6 @@
       height: 100%;
       object-fit: cover;
     }
-    .camera-select {
-      margin-top: 10px;
-      color: #fff;
-      font-size: 0.9rem;
-    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -79,17 +122,30 @@
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff;">MARK-LXXXV HUD</h1>
-    <p style="color:#aaa; text-align:center; max-width: 80%;">Place phone into Google Cardboard after engaging system.</p>
-    <button class="btn" id="start-btn">ENGAGE HUD SYSTEM</button>
-    
-    <div class="camera-select">
-      <label for="cam-select">Camera Source: </label>
-      <select id="cam-select" style="background:#000; color:#00f0ff; border:1px solid #00f0ff; padding:5px;">
-        <option value="environment">Rear Camera (World Passthrough)</option>
-        <option value="user">Front Camera (User Facing)</option>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.6rem;">MARK-LXXXV HUD</h1>
+    <p style="color:#aaa; text-align:center; font-size: 0.85rem;">Select your camera/lens before mounting phone into VR Headset.</p>
+
+    <div class="control-group">
+      <label>1. SENSOR DETECT</label>
+      <button class="sub-btn" id="enum-btn">GRANT & SCAN LENSES</button>
+    </div>
+
+    <div class="control-group">
+      <label for="cam-select">2. CAMERA HARDWARE DEVICE</label>
+      <select id="cam-select">
+        <option value="">-- Tap 'Scan Lenses' First --</option>
       </select>
     </div>
+
+    <div class="control-group">
+      <label>3. FOCAL PRESET / ZOOM</label>
+      <div class="lens-toggle">
+        <button class="lens-btn" id="btn-06x">0.6x (Ultra-Wide)</button>
+        <button class="lens-btn active" id="btn-1x">1.0x (Main Wide)</button>
+      </div>
+    </div>
+
+    <button class="btn" id="start-btn" style="margin-top: 10px;">ENGAGE HUD SYSTEM</button>
   </div>
 
   <video id="webcam" autoplay playsinline muted></video>
@@ -105,14 +161,103 @@
     const rightCanvas = document.getElementById('rightCanvas');
     const leftCtx = leftCanvas.getContext('2d');
     const rightCtx = rightCanvas.getContext('2d');
+    
     const startBtn = document.getElementById('start-btn');
+    const enumBtn = document.getElementById('enum-btn');
     const startOverlay = document.getElementById('start-overlay');
     const camSelect = document.getElementById('cam-select');
+    const btn06x = document.getElementById('btn-06x');
+    const btn1x = document.getElementById('btn-1x');
 
     let model = null;
     let predictions = [];
+    let currentStream = null;
+    let videoTrack = null;
+    let targetZoomLevel = 1.0;
     let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 0, lon: 0, alt: 0, speed: 0 };
 
+    // --- Dynamic Camera & Lens Enumeration ---
+    async function enumerateCameras() {
+      try {
+        // Request temporary stream to unlock device labels on mobile
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        tempStream.getTracks().forEach(track => track.stop());
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        camSelect.innerHTML = '';
+        
+        videoDevices.forEach((device, idx) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          let label = device.label || `Camera ${idx + 1}`;
+          
+          // Auto-tag Samsung camera IDs (e.g. camera2 0 = 1x, camera2 2 = 0.6x)
+          if (label.includes('2') || label.toLowerCase().includes('wide') || label.toLowerCase().includes('ultra')) {
+            label += ' [Ultra-Wide/Aux]';
+          } else if (label.includes('0') || label.toLowerCase().includes('back')) {
+            label += ' [Main Lens]';
+          }
+          
+          option.text = label;
+          camSelect.appendChild(option);
+        });
+
+        enumBtn.innerText = `FOUND ${videoDevices.length} CAMERA LENSES`;
+        enumBtn.style.borderColor = '#00ff66';
+        enumBtn.style.color = '#00ff66';
+      } catch (err) {
+        alert('Failed to scan cameras: ' + err.message);
+      }
+    }
+
+    // --- Lens Preset Toggles ---
+    btn06x.addEventListener('click', () => {
+      targetZoomLevel = 0.6;
+      btn06x.classList.add('active');
+      btn1x.classList.remove('active');
+      autoSelectLensOption('ultra');
+      applyZoomIfSupported();
+    });
+
+    btn1x.addEventListener('click', () => {
+      targetZoomLevel = 1.0;
+      btn1x.classList.add('active');
+      btn06x.classList.remove('active');
+      autoSelectLensOption('main');
+      applyZoomIfSupported();
+    });
+
+    function autoSelectLensOption(type) {
+      const options = Array.from(camSelect.options);
+      if (type === 'ultra') {
+        // Look for camera index containing ultra-wide key labels or camera2 2
+        const match = options.find(o => o.text.toLowerCase().includes('ultra') || o.text.includes('2'));
+        if (match) camSelect.value = match.value;
+      } else {
+        const match = options.find(o => o.text.toLowerCase().includes('main') || o.text.includes('0'));
+        if (match) camSelect.value = match.value;
+      }
+    }
+
+    async function applyZoomIfSupported() {
+      if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
+        const capabilities = videoTrack.getCapabilities();
+        if (capabilities.zoom) {
+          try {
+            const minZoom = capabilities.zoom.min;
+            const maxZoom = capabilities.zoom.max;
+            const desiredZoom = Math.max(minZoom, Math.min(targetZoomLevel, maxZoom));
+            await videoTrack.applyConstraints({ advanced: [{ zoom: desiredZoom }] });
+          } catch (e) {
+            console.log('Hardware zoom constraint error:', e);
+          }
+        }
+      }
+    }
+
+    // --- TensorFlow & Sensors ---
     async function initObjectDetection() {
       model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
       detectObjects();
@@ -154,23 +299,33 @@
       telemetry.yaw = e.alpha ? e.alpha.toFixed(1) : 0;
     }
 
+    // --- Start Camera Stream ---
     async function startCamera() {
-      const facingMode = camSelect.value;
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+      }
+
+      const selectedDeviceId = camSelect.value;
       const constraints = {
-        video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: selectedDeviceId 
+          ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       };
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = currentStream;
+        videoTrack = currentStream.getVideoTracks()[0];
+
         video.onloadedmetadata = () => {
           video.play();
+          applyZoomIfSupported();
           resizeCanvases();
           requestAnimationFrame(renderLoop);
         };
       } catch (err) {
-        alert('Camera Access Denied or Unavailable: ' + err.message);
+        alert('Camera Access Denied: ' + err.message);
       }
     }
 
@@ -183,10 +338,10 @@
       });
     }
 
+    // --- HUD Renderer ---
     function drawHUD(ctx, width, height) {
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Render Video Background
       const vRatio = video.videoWidth / video.videoHeight;
       const cRatio = width / height;
       let renderW = width, renderH = height, xOffset = 0, yOffset = 0;
@@ -198,13 +353,7 @@
         xOffset = (width - renderW) / 2;
       }
 
-      ctx.save();
-      if (camSelect.value === 'user') {
-        ctx.translate(width, 0);
-        ctx.scale(-1, 1);
-      }
       ctx.drawImage(video, xOffset, yOffset, renderW, renderH);
-      ctx.restore();
 
       const primaryColor = '#00f0ff';
       const secondaryColor = '#ff3300';
@@ -213,18 +362,17 @@
 
       ctx.strokeStyle = primaryColor;
       ctx.fillStyle = primaryColor;
-      ctx.lineWidth = 1; // Thinner lines
+      ctx.lineWidth = 1;
 
-      // 2. Scaled-Down Reticle & Artificial Horizon
+      // Reticle & Horizon Line
       ctx.beginPath();
-      ctx.arc(cx, cy, 22, 0, Math.PI * 2); // Reticle radius reduced from 40 to 22
+      ctx.arc(cx, cy, 22, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.beginPath();
       ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Pitch Horizon Line (Narrower width & smaller text offset)
       const pitchOffset = telemetry.pitch * 1.5;
       ctx.save();
       ctx.translate(cx, cy);
@@ -241,7 +389,7 @@
       ctx.fillText(`PITCH: ${telemetry.pitch}°`, 30, pitchOffset - 5);
       ctx.restore();
 
-      // 3. Object Recognition Bounding Boxes (Thinner lines & smaller font)
+      // Object Bounding Boxes
       const scaleX = renderW / video.videoWidth;
       const scaleY = renderH / video.videoHeight;
 
@@ -256,7 +404,7 @@
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, w, h);
 
-        const len = 6; // Shorter corner accents
+        const len = 6;
         ctx.strokeStyle = primaryColor;
         ctx.beginPath();
         ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
@@ -269,22 +417,20 @@
         ctx.fillText(label, x, y - 4);
       });
 
-      // 4. Compact Telemetry Sidebars
+      // Telemetry Data
       ctx.fillStyle = primaryColor;
       ctx.font = '9px Courier New';
 
-      // Left Telemetry Block
       ctx.fillText(`SYS: ONLINE`, 15, 25);
-      ctx.fillText(`LAT: ${telemetry.lat}`, 15, 38);
-      ctx.fillText(`LON: ${telemetry.lon}`, 15, 51);
-      ctx.fillText(`ALT: ${telemetry.alt}m`, 15, 64);
+      ctx.fillText(`LENS: ${targetZoomLevel}X`, 15, 38);
+      ctx.fillText(`LAT: ${telemetry.lat}`, 15, 51);
+      ctx.fillText(`LON: ${telemetry.lon}`, 15, 64);
 
-      // Right Telemetry Block
       ctx.fillText(`HDG: ${telemetry.yaw}°`, width - 95, 25);
       ctx.fillText(`SPD: ${telemetry.speed}km/h`, width - 95, 38);
       ctx.fillText(`FPS: 60`, width - 95, 51);
 
-      // Outer Decorative Arc (Radius reduced from 0.42 to 0.28)
+      // Outer Arc
       ctx.beginPath();
       ctx.arc(cx, cy, Math.min(width, height) * 0.28, -Math.PI / 4, Math.PI / 4);
       ctx.stroke();
@@ -298,6 +444,14 @@
       drawHUD(rightCtx, rightCanvas.width, rightCanvas.height);
       requestAnimationFrame(renderLoop);
     }
+
+    enumBtn.addEventListener('click', enumerateCameras);
+    
+    camSelect.addEventListener('change', () => {
+      if (startOverlay.style.display === 'none') {
+        startCamera();
+      }
+    });
 
     startBtn.addEventListener('click', () => {
       startOverlay.style.display = 'none';
