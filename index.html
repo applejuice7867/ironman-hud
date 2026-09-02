@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>JARVIS VR HUD - Satellite Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>JARVIS VR HUD - Fullscreen</title>
   <style>
     * {
       box-sizing: border-box;
@@ -11,13 +14,15 @@
       padding: 0;
       user-select: none;
     }
-    body {
+    body, html {
       background-color: #000;
       color: #00f0ff;
       font-family: 'Courier New', Courier, monospace;
       overflow: hidden;
       width: 100vw;
       height: 100vh;
+      /* Ensures content fills full display including notch areas */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
     #start-overlay {
       position: absolute;
@@ -114,7 +119,7 @@
 
   <div id="start-overlay">
     <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.6rem;">MARK-LXXXV HUD</h1>
-    <p style="color:#aaa; text-align:center; font-size:0.85rem;">Select your camera/lens, then insert phone into Google Cardboard.</p>
+    <p style="color:#aaa; text-align:center; font-size:0.85rem;">Select camera/lens, then press button to enter Fullscreen VR mode.</p>
 
     <div class="control-group">
       <label for="cam-select">Available Camera Hardware:</label>
@@ -132,7 +137,7 @@
       </div>
     </div>
 
-    <button class="btn" id="start-btn">ENGAGE HUD SYSTEM</button>
+    <button class="btn" id="start-btn">ENGAGE FULLSCREEN HUD</button>
   </div>
 
   <video id="webcam" autoplay playsinline muted></video>
@@ -155,17 +160,41 @@
 
     let model = null;
     let predictions = [];
-    // Default location: Malibu, CA (Iron Man HQ) until real GPS fixes
     let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 34.0259, lon: -118.7798, alt: 124.5, speed: 0.0 };
     let currentStream = null;
     let currentTrack = null;
     let targetZoom = 0.6;
     let isUserFacing = false;
 
-    // Satellite Map Tile State
     let mapImage = new Image();
     let mapImageLoaded = false;
     let currentTileUrl = '';
+
+    // Trigger Mobile Fullscreen & Lock Orientation
+    async function enableFullscreenMode() {
+      const docEl = document.documentElement;
+
+      try {
+        if (docEl.requestFullscreen) {
+          await docEl.requestFullscreen();
+        } else if (docEl.webkitRequestFullscreen) {
+          await docEl.webkitRequestFullscreen();
+        } else if (docEl.msRequestFullscreen) {
+          await docEl.msRequestFullscreen();
+        }
+      } catch (e) {
+        console.warn('Fullscreen request bypassed/failed:', e);
+      }
+
+      // Lock screen orientation into landscape mode for VR Cardboard
+      if (screen.orientation && screen.orientation.lock) {
+        try {
+          await screen.orientation.lock('landscape');
+        } catch (e) {
+          console.warn('Orientation lock unsupported/bypassed:', e);
+        }
+      }
+    }
 
     function updateMapTile(lat, lon) {
       const zoom = 15;
@@ -221,7 +250,6 @@
           { enableHighAccuracy: true }
         );
       }
-      // Load initial map tile
       updateMapTile(telemetry.lat, telemetry.lon);
     }
 
@@ -318,7 +346,7 @@
     function drawHUD(ctx, width, height) {
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Render Video
+      // 1. Render Video Background
       const vRatio = video.videoWidth / video.videoHeight || 16/9;
       const cRatio = width / height;
       let renderW = width, renderH = height, xOffset = 0, yOffset = 0;
@@ -372,7 +400,7 @@
       ctx.fillText(`P: ${telemetry.pitch}°`, 24, pitchOffset - 4);
       ctx.restore();
 
-      // 3. Object Recognition Bounding Boxes
+      // 3. Bounding Boxes
       const scaleX = renderW / (video.videoWidth || 1);
       const scaleY = renderH / (video.videoHeight || 1);
 
@@ -400,28 +428,25 @@
         ctx.fillText(label, x, y - 3);
       });
 
-      // 4. Centered Telemetry Text Blocks
+      // 4. Centered Telemetry
       ctx.fillStyle = primaryColor;
       ctx.font = '8px Courier New';
 
-      // Left Telemetry Block
       const leftX = cx - 85;
       ctx.fillText(`SYS: ONLINE`, leftX, cy - 35);
       ctx.fillText(`ALT: ${telemetry.alt}m`, leftX, cy - 23);
       ctx.fillText(`SPD: ${telemetry.speed}km/h`, leftX, cy - 11);
       ctx.fillText(`LENS: ${targetZoom}X`, leftX, cy + 1);
 
-      // Top Right Text Readouts
       const rightX = cx + 25;
       ctx.fillText(`HDG: ${telemetry.yaw}°`, rightX, cy - 35);
       ctx.fillText(`FPS: 60`, rightX, cy - 23);
 
-      // 5. Satellite Mini-Map (Bottom Right)
+      // 5. Satellite Map (Bottom Right)
       const mapRadius = 26;
       const mapX = cx + 50;
       const mapY = cy + 22;
 
-      // Draw Satellite Imagery Clipped in Circle
       ctx.save();
       ctx.beginPath();
       ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
@@ -435,14 +460,12 @@
       }
       ctx.restore();
 
-      // Outer Map Ring
       ctx.strokeStyle = primaryColor;
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Crosshairs & Center Target Blip
       ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
       ctx.lineWidth = 0.8;
       ctx.beginPath();
@@ -455,12 +478,11 @@
       ctx.arc(mapX, mapY, 2.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Map Label
       ctx.fillStyle = primaryColor;
       ctx.font = '7px Courier New';
       ctx.fillText('SAT-NAV', mapX - 14, mapY + mapRadius + 8);
 
-      // Tight Inner HUD Ring
+      // Outer Inner Ring
       ctx.beginPath();
       ctx.arc(cx, cy, Math.min(width, height) * 0.18, -Math.PI / 4, Math.PI / 4);
       ctx.stroke();
@@ -489,6 +511,8 @@
     });
 
     startBtn.addEventListener('click', async () => {
+      // Direct user interaction event allows triggering Fullscreen & Orientation API
+      await enableFullscreenMode();
       startOverlay.style.display = 'none';
       initSensors();
       await startCamera(camSelect.value || null);
@@ -504,6 +528,9 @@
       .catch(() => {});
 
     window.addEventListener('resize', resizeCanvases);
+    // Listen for orientation/fullscreen changes to resize canvas viewports dynamically
+    document.addEventListener('fullscreenchange', resizeCanvases);
+    window.addEventListener('orientationchange', resizeCanvases);
   </script>
 </body>
 </html>
