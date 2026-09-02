@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>JARVIS VR HUD - Scalable 3D YouTube Player</title>
+  <title>JARVIS VR HUD - Monocular YouTube & Independent Scaling</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html {
@@ -74,7 +74,7 @@
       z-index: 1;
     }
 
-    /* 3D Floating Stereoscopic YouTube Containers */
+    /* Monocular YouTube Layer (Only injected into one eye to prevent audio sync and 3D clash) */
     .youtube-layer {
       position: absolute;
       top: 0;
@@ -89,7 +89,7 @@
     }
     .youtube-frame-wrapper {
       position: absolute;
-      width: 160px;   /* Made smaller by default */
+      width: 160px;
       height: 95px;
       border: 2px solid rgba(0, 240, 255, 0.8);
       box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
@@ -159,10 +159,28 @@
       </div>
     </div>
 
-    <!-- Media Scale Slider -->
     <div class="control-group">
-      <div class="slider-row"><span>YouTube Player Size:</span><span id="scale-val">1.0x</span></div>
+      <label>YouTube Eye Display:</label>
+      <div class="lens-toggle">
+        <button class="lens-btn active" data-eye="left" id="eye-left-btn">Left Eye</button>
+        <button class="lens-btn" data-eye="right" id="eye-right-btn">Right Eye</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="slider-row"><span>YouTube Player Scale:</span><span id="scale-val">1.0x</span></div>
       <input type="range" id="scale-slider" min="0.4" max="2.0" value="1.0" step="0.1">
+    </div>
+
+    <!-- Separate Independent Sliders for HUD FOV and HUD Scale -->
+    <div class="control-group">
+      <div class="slider-row"><span>HUD Scale Size:</span><span id="hud-scale-val">1.0x</span></div>
+      <input type="range" id="hud-scale-slider" min="0.5" max="1.8" value="1.0" step="0.05">
+    </div>
+
+    <div class="control-group">
+      <div class="slider-row"><span>HUD Field of View (FOV):</span><span id="fov-val">1.0x</span></div>
+      <input type="range" id="fov-slider" min="0.7" max="1.5" value="1.0" step="0.05">
     </div>
 
     <div class="control-group">
@@ -170,16 +188,11 @@
       <input type="range" id="ipd-slider" min="-60" max="60" value="0" step="1">
     </div>
 
-    <div class="control-group">
-      <div class="slider-row"><span>Field of View (FOV):</span><span id="fov-val">1.0x</span></div>
-      <input type="range" id="fov-slider" min="0.7" max="1.5" value="1.0" step="0.05">
-    </div>
-
     <div class="gesture-info">
-      🖐️ <b>Open Hand Drag:</b> Move 3D Box | 👌 <b>Pinch:</b> Play/Pause
+      🖐️ <b>Open Hand Drag:</b> Move YouTube Box | 👌 <b>Pinch:</b> Play/Pause
     </div>
 
-    <button class="btn" id="start-btn">ENGAGE 3D VR HUD</button>
+    <button class="btn" id="start-btn">ENGAGE VR HUD</button>
   </div>
 
   <video id="webcam" autoplay playsinline muted></video>
@@ -219,13 +232,16 @@
     const startBtn = document.getElementById('start-btn');
     const startOverlay = document.getElementById('start-overlay');
     const camSelect = document.getElementById('cam-select');
-    const lensBtns = document.querySelectorAll('.lens-btn');
+    const lensBtns = document.querySelectorAll('.lens-btn[data-zoom]');
+    const eyeBtns = document.querySelectorAll('.lens-btn[data-eye]');
     const ytInput = document.getElementById('yt-input');
     
     const ipdSlider = document.getElementById('ipd-slider');
     const ipdVal = document.getElementById('ipd-val');
     const fovSlider = document.getElementById('fov-slider');
     const fovVal = document.getElementById('fov-val');
+    const hudScaleSlider = document.getElementById('hud-scale-slider');
+    const hudScaleVal = document.getElementById('hud-scale-val');
     const scaleSlider = document.getElementById('scale-slider');
     const scaleVal = document.getElementById('scale-val');
 
@@ -234,23 +250,43 @@
     const ytWrapperLeft = document.getElementById('yt-wrapper-left');
     const ytWrapperRight = document.getElementById('yt-wrapper-right');
 
-    let ytPlayerLeft, ytPlayerRight;
+    let ytPlayer = null;
     let hasValidVideo = false;
+    let targetYouTubeEye = localStorage.getItem('hud_yt_eye') || 'left';
 
-    function initYouTubePlayers(id) {
+    eyeBtns.forEach(b => {
+      if(b.dataset.eye === targetYouTubeEye) {
+        eyeBtns.forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      }
+      b.addEventListener('click', (e) => {
+        eyeBtns.forEach(x => x.classList.remove('active'));
+        e.target.classList.add('active');
+        targetYouTubeEye = e.target.dataset.eye;
+        localStorage.setItem('hud_yt_eye', targetYouTubeEye);
+      });
+    });
+
+    function initYouTubePlayer(id) {
       if (!id) return;
       hasValidVideo = true;
-      ytLayerLeft.style.display = 'flex';
-      ytLayerRight.style.display = 'flex';
-
-      ytPlayerLeft = new YT.Player('yt-player-left', {
-        videoId: id,
-        playerVars: { 'autoplay': 1, 'controls': 1, 'playsinline': 1 }
-      });
-      ytPlayerRight = new YT.Player('yt-player-right', {
-        videoId: id,
-        playerVars: { 'autoplay': 1, 'controls': 1, 'playsinline': 1 }
-      });
+      
+      // Monocular routing: only display the player in the chosen eye to fix audio sync and double vision
+      if (targetYouTubeEye === 'left') {
+        ytLayerLeft.style.display = 'flex';
+        ytLayerRight.style.display = 'none';
+        ytPlayer = new YT.Player('yt-player-left', {
+          videoId: id,
+          playerVars: { 'autoplay': 1, 'controls': 1, 'playsinline': 1 }
+        });
+      } else {
+        ytLayerLeft.style.display = 'none';
+        ytLayerRight.style.display = 'flex';
+        ytPlayer = new YT.Player('yt-player-right', {
+          videoId: id,
+          playerVars: { 'autoplay': 1, 'controls': 1, 'playsinline': 1 }
+        });
+      }
     }
 
     let cocoModel = null;
@@ -279,8 +315,11 @@
 
     let userIPD = parseInt(localStorage.getItem('hud_ipd') || '0');
     let userFOV = parseFloat(localStorage.getItem('hud_fov') || '1.0');
+    let userHUDScale = parseFloat(localStorage.getItem('hud_scale') || '1.0');
+
     ipdSlider.value = userIPD; ipdVal.innerText = userIPD + 'px';
     fovSlider.value = userFOV; fovVal.innerText = userFOV + 'x';
+    hudScaleSlider.value = userHUDScale; hudScaleVal.innerText = userHUDScale + 'x';
 
     ipdSlider.addEventListener('input', (e) => {
       userIPD = parseInt(e.target.value);
@@ -292,6 +331,12 @@
       userFOV = parseFloat(e.target.value);
       fovVal.innerText = userFOV + 'x';
       localStorage.setItem('hud_fov', userFOV);
+    });
+
+    hudScaleSlider.addEventListener('input', (e) => {
+      userHUDScale = parseFloat(e.target.value);
+      hudScaleVal.innerText = userHUDScale + 'x';
+      localStorage.setItem('hud_scale', userHUDScale);
     });
 
     let notificationText = "";
@@ -398,13 +443,13 @@
 
       gestureCooldown = true;
       try {
-        if (ytPlayerLeft && typeof ytPlayerLeft.getPlayerState === 'function') {
-          const state = ytPlayerLeft.getPlayerState();
+        if (ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+          const state = ytPlayer.getPlayerState();
           if (state === YT.PlayerState.PLAYING) {
-            ytPlayerLeft.pauseVideo(); ytPlayerRight.pauseVideo();
+            ytPlayer.pauseVideo();
             showNotification("MEDIA: PAUSED");
           } else {
-            ytPlayerLeft.playVideo(); ytPlayerRight.playVideo();
+            ytPlayer.playVideo();
             showNotification("MEDIA: PLAYING");
           }
         }
@@ -414,9 +459,12 @@
 
     function updateYouTubeDOM3D() {
       if (!hasValidVideo) return;
-      const baseTransform = `translate(${mediaBoxState.x}px, ${mediaBoxState.y}px) scale(${mediaBoxState.scale})`;
-      ytWrapperLeft.style.transform = `translateX(-15px) ${baseTransform}`;
-      ytWrapperRight.style.transform = `translateX(15px) ${baseTransform}`;
+      const transformStyle = `translate(${mediaBoxState.x}px, ${mediaBoxState.y}px) scale(${mediaBoxState.scale})`;
+      if (targetYouTubeEye === 'left') {
+        ytWrapperLeft.style.transform = transformStyle;
+      } else {
+        ytWrapperRight.style.transform = transformStyle;
+      }
     }
 
     function initSensors() {
@@ -541,6 +589,7 @@
       const shiftX = (eye === 'left' ? 1 : -1) * (userIPD / 2);
       ctx.translate(shiftX, 0);
       
+      // Independent FOV Scale + Independent HUD Size Scale separation
       ctx.translate(width / 2, height / 2);
       ctx.scale(userFOV, userFOV);
       ctx.translate(-width / 2, -height / 2);
@@ -549,6 +598,11 @@
       if (isUserFacing) { ctx.translate(width, 0); ctx.scale(-1, 1); }
       ctx.drawImage(video, xOffset, yOffset, renderW, renderH);
       ctx.restore();
+
+      // Apply independent HUD scale factor to all vector elements
+      ctx.translate(width / 2, height / 2);
+      ctx.scale(userHUDScale, userHUDScale);
+      ctx.translate(-width / 2, -height / 2);
 
       const primaryColor = '#00f0ff';
       const secondaryColor = '#ff3300';
@@ -687,7 +741,7 @@
       startOverlay.style.display = 'none';
       
       if (val) {
-        initYouTubePlayers(val);
+        initYouTubePlayer(val);
         updateYouTubeDOM3D();
       } else {
         hasValidVideo = false;
