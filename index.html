@@ -16,19 +16,20 @@
       overflow: hidden;
       width: 100vw;
       height: 100vh;
-      touch-action: none; /* Prevents pull-to-refresh on mobile */
+      touch-action: none;
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
+    
     #start-overlay {
       position: absolute;
       inset: 0;
       z-index: 999;
-      background: rgba(0, 5, 15, 0.95);
+      background: rgba(0, 5, 15, 0.98);
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      gap: 15px;
+      gap: 20px;
       padding: 20px;
     }
     .btn {
@@ -36,44 +37,47 @@
       border: 2px solid #00f0ff;
       color: #00f0ff;
       padding: 15px 30px;
-      font-size: 1.2rem;
+      font-size: 1.1rem;
       font-weight: bold;
       border-radius: 8px;
       cursor: pointer;
       box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
       text-transform: uppercase;
       letter-spacing: 2px;
+      transition: all 0.2s ease;
     }
     .btn:active { background: #00f0ff; color: #000; }
-    #vr-container { display: flex; width: 100vw; height: 100vh; }
-    .viewport {
-      position: relative;
-      width: 50vw;
-      height: 100vh;
-      overflow: hidden;
-      border-right: 1px solid rgba(0, 240, 255, 0.2);
-    }
-    video, #ai-canvas { display: none; }
-    canvas { display: block; }
-    .control-group {
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
-      color: #fff; font-size: 0.85rem; width: 100%; max-width: 320px;
-    }
+    .btn:disabled { border-color: #555; color: #555; box-shadow: none; cursor: not-allowed; }
+    
+    #step-2-controls { display: none; width: 100%; max-width: 320px; flex-direction: column; gap: 15px; align-items: center; }
+    
+    .control-group { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #fff; font-size: 0.85rem; width: 100%; }
     select {
       background: #000; color: #00f0ff; border: 1px solid #00f0ff;
       padding: 10px; border-radius: 4px; width: 100%; font-family: monospace;
     }
-    .lens-toggle { display: flex; gap: 10px; margin-top: 5px; }
+    .lens-toggle { display: flex; gap: 10px; }
     .lens-btn {
       background: rgba(0, 240, 255, 0.1); border: 1px solid #00f0ff;
-      color: #00f0ff; padding: 8px 16px; font-size: 0.9rem;
-      border-radius: 4px; cursor: pointer;
+      color: #00f0ff; padding: 8px 16px; font-size: 0.9rem; border-radius: 4px; cursor: pointer;
     }
     .lens-btn.active { background: #00f0ff; color: #000; font-weight: bold; }
-    .gesture-info {
-      color: #00f0ff; font-size: 0.8rem; text-align: center;
-      border: 1px dashed rgba(0, 240, 255, 0.4); padding: 10px; border-radius: 4px; margin-top: 5px;
+    
+    #status-console {
+      color: #00f0ff; font-size: 0.75rem; text-align: left; width: 100%; max-width: 320px;
+      border: 1px dashed rgba(0, 240, 255, 0.4); padding: 10px; border-radius: 4px;
+      height: 100px; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-end;
     }
+    .gesture-info { color: #aaa; font-size: 0.75rem; text-align: center; }
+
+    #vr-container { display: flex; width: 100vw; height: 100vh; }
+    .viewport {
+      position: relative; width: 50vw; height: 100vh; overflow: hidden;
+      border-right: 1px solid rgba(0, 240, 255, 0.2);
+    }
+    video { display: none; }
+    #ai-canvas { display: none; } /* Hidden low-res canvas for AI processing */
+    canvas { display: block; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -84,29 +88,34 @@
   <div id="start-overlay">
     <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.8rem; text-align: center;">MARK-LXXXV<br>HUD</h1>
     
-    <div class="control-group">
-      <label for="cam-select">Camera Source:</label>
-      <select id="cam-select"><option value="">Initializing...</option></select>
-    </div>
+    <button class="btn" id="step-1-btn">1. SYNC SENSORS & AI</button>
+    
+    <div id="step-2-controls">
+      <div class="control-group">
+        <label for="cam-select">Camera Source:</label>
+        <select id="cam-select"></select>
+      </div>
 
-    <div class="control-group">
-      <div class="lens-toggle">
-        <button class="lens-btn active" data-zoom="0.6">0.6x</button>
-        <button class="lens-btn" data-zoom="1.0">1.0x</button>
-        <button class="lens-btn" data-zoom="2.0">2.0x</button>
+      <div class="control-group">
+        <div class="lens-toggle">
+          <button class="lens-btn active" data-zoom="0.6">0.6x</button>
+          <button class="lens-btn" data-zoom="1.0">1.0x</button>
+          <button class="lens-btn" data-zoom="2.0">2.0x</button>
+        </div>
+      </div>
+
+      <button class="btn" id="step-2-btn">2. ENGAGE VR FULLSCREEN</button>
+      
+      <div class="gesture-info">
+        🖐️ <b>Open Palm:</b> Calibrate Orientation<br/>
+        👌 <b>Pinch:</b> Cycle Zoom
       </div>
     </div>
 
-    <div class="gesture-info">
-      🖐️ <b>Open Palm:</b> Recalibrate Orientation<br/>
-      👌 <b>Pinch:</b> Cycle Camera Zoom
-    </div>
-
-    <button class="btn" id="start-btn">ENGAGE VR HUD</button>
+    <div id="status-console">Awaiting initialization...</div>
   </div>
 
   <video id="webcam" autoplay playsinline muted></video>
-  <!-- Hidden low-res canvas for fast AI processing -->
   <canvas id="ai-canvas" width="256" height="256"></canvas>
 
   <div id="vr-container">
@@ -124,8 +133,10 @@
     const leftCtx = leftCanvas.getContext('2d');
     const rightCtx = rightCanvas.getContext('2d');
     
-    const startBtn = document.getElementById('start-btn');
-    const startOverlay = document.getElementById('start-overlay');
+    const step1Btn = document.getElementById('step-1-btn');
+    const step2Btn = document.getElementById('step-2-btn');
+    const step2Controls = document.getElementById('step-2-controls');
+    const statusConsole = document.getElementById('status-console');
     const camSelect = document.getElementById('cam-select');
     const lensBtns = document.querySelectorAll('.lens-btn');
 
@@ -136,7 +147,7 @@
     
     let rawOrientation = { pitch: 0, roll: 0, yaw: 0 };
     let orientationOffset = { pitch: 0, roll: 0, yaw: 0 };
-    let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 22.2855, lon: 114.1577, alt: 124.5, speed: 0.0 };
+    let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 0, lon: 0, alt: '124.5', speed: '0.0' };
     
     let currentStream = null;
     let currentTrack = null;
@@ -150,19 +161,12 @@
     let mapImage = new Image();
     let mapImageLoaded = false;
     let currentTileUrl = '';
+    
+    let isRunning = false;
 
-    // Fix: Robust Cross-Browser Synchronous Fullscreen
-    function goFullscreenAndLock() {
-      const docEl = document.documentElement;
-      const requestFS = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
-      
-      if (requestFS) {
-        requestFS.call(docEl).then(() => {
-          if (screen.orientation && screen.orientation.lock) {
-            screen.orientation.lock('landscape').catch(e => console.warn("Orientation lock bypassed"));
-          }
-        }).catch(err => console.warn("Fullscreen blocked by browser", err));
-      }
+    function logStatus(msg) {
+      statusConsole.innerHTML += `<div>> ${msg}</div>`;
+      statusConsole.scrollTop = statusConsole.scrollHeight;
     }
 
     function showNotification(msg) {
@@ -178,8 +182,22 @@
       showNotification("ORIENTATION CALIBRATED");
     }
 
-    // Map logic
+    // Reliable Fullscreen Request
+    function goFullscreenAndLock() {
+      const docEl = document.documentElement;
+      const requestFS = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+      
+      if (requestFS) {
+        requestFS.call(docEl).then(() => {
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(e => console.log("Orientation lock bypassed"));
+          }
+        }).catch(err => logStatus("Fullscreen blocked by browser."));
+      }
+    }
+
     function updateMapTile(lat, lon) {
+      if (lat === 0 && lon === 0) return;
       const zoom = 15;
       const latRad = lat * Math.PI / 180;
       const n = Math.pow(2, zoom);
@@ -196,79 +214,8 @@
       }
     }
 
-    // AI Initialization (Forces WebGL Hardware Acceleration)
-    async function initAI() {
-      await tf.setBackend('webgl');
-      await tf.ready();
-      cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      handModel = await handpose.load();
-      requestAnimationFrame(aiDetectionLoop);
-    }
-
-    // Fix: Decoupled & Alternating AI Loop to prevent frame drops
-    let lastAITime = 0;
-    let aiToggle = false;
-
-    async function aiDetectionLoop(timestamp) {
-      // Throttle AI to run only every 150ms
-      if (timestamp - lastAITime > 150) {
-        if (video.readyState === 4 && video.videoWidth > 0) {
-          // Draw frame down to 256x256 for rapid processing
-          aiCtx.drawImage(video, 0, 0, 256, 256);
-
-          // Alternate between Object Detection and Hand Tracking
-          if (aiToggle && cocoModel) {
-            predictions = await cocoModel.detect(aiCanvas, 4, 0.4);
-          } else if (!aiToggle && handModel) {
-            handPredictions = await handModel.estimateHands(aiCanvas);
-            processHandGestures(handPredictions);
-          }
-          aiToggle = !aiToggle;
-          lastAITime = timestamp;
-        }
-      }
-      requestAnimationFrame(aiDetectionLoop);
-    }
-
-    function processHandGestures(hands) {
-      if (hands.length === 0 || gestureCooldown) return;
-
-      const landmarks = hands[0].landmarks;
-      const thumbTip = landmarks[4];
-      const indexTip = landmarks[8];
-      const wrist = landmarks[0];
-      const middleTip = landmarks[12];
-
-      // Distances are much smaller on the 256x256 scaled canvas
-      const pinchDist = Math.hypot(thumbTip[0] - indexTip[0], thumbTip[1] - indexTip[1]);
-      const handExtension = Math.hypot(wrist[0] - middleTip[0], wrist[1] - middleTip[1]);
-
-      if (pinchDist < 15) { // Adjusted for 256px grid
-        gestureCooldown = true;
-        const zooms = [0.6, 1.0, 2.0];
-        let nextIdx = (zooms.indexOf(targetZoom) + 1) % zooms.length;
-        applyZoom(zooms[nextIdx]);
-        document.querySelectorAll('.lens-btn').forEach(b => b.classList.remove('active'));
-        document.querySelector(`.lens-btn[data-zoom="${zooms[nextIdx]}"]`).classList.add('active');
-        showNotification(`ZOOM: ${zooms[nextIdx]}X`);
-        setTimeout(() => { gestureCooldown = false; }, 1200);
-      } 
-      else if (handExtension > 60) { // Adjusted for 256px grid
-        gestureCooldown = true;
-        resetOrientation();
-        setTimeout(() => { gestureCooldown = false; }, 1500);
-      }
-    }
-
     function initSensors() {
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission().then(state => {
-          if (state === 'granted') window.addEventListener('deviceorientation', handleOrientation);
-        });
-      } else {
-        window.addEventListener('deviceorientation', handleOrientation);
-      }
-
+      logStatus("Requesting Location Data...");
       if ('geolocation' in navigator) {
         navigator.geolocation.watchPosition(
           pos => {
@@ -277,12 +224,21 @@
             telemetry.alt = pos.coords.altitude ? pos.coords.altitude.toFixed(1) : '124.5';
             telemetry.speed = pos.coords.speed ? (pos.coords.speed * 3.6).toFixed(1) : '0.0';
             updateMapTile(telemetry.lat, telemetry.lon);
+            logStatus("GPS Lock Acquired.");
           },
-          err => console.log(err),
+          err => logStatus("GPS Denied/Unavailable."),
           { enableHighAccuracy: true }
         );
       }
-      updateMapTile(telemetry.lat, telemetry.lon);
+
+      logStatus("Binding Gyroscope...");
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(state => {
+          if (state === 'granted') window.addEventListener('deviceorientation', handleOrientation);
+        }).catch(e => logStatus("Gyroscope Permission Denied."));
+      } else {
+        window.addEventListener('deviceorientation', handleOrientation);
+      }
     }
 
     function handleOrientation(e) {
@@ -310,17 +266,18 @@
           opt.text = label;
           camSelect.appendChild(opt);
         });
-      } catch (err) {}
+      } catch (err) { logStatus("Could not enumerate cameras."); }
     }
 
     async function startCamera(deviceId = null) {
       if (currentStream) currentStream.getTracks().forEach(t => t.stop());
 
-      const videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+      const videoConstraints = { width: { ideal: 1920 }, height: { ideal: 1080 } };
       if (deviceId) videoConstraints.deviceId = { exact: deviceId };
       else videoConstraints.facingMode = { ideal: 'environment' };
 
       try {
+        logStatus("Requesting Camera...");
         currentStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
         video.srcObject = currentStream;
         currentTrack = currentStream.getVideoTracks()[0];
@@ -330,8 +287,8 @@
         if (deviceId) camSelect.value = deviceId;
         await applyZoom(targetZoom);
 
-        video.onloadedmetadata = () => { video.play(); resizeCanvases(); };
-      } catch (err) { alert('Camera Access Denied: ' + err.message); }
+        video.onloadedmetadata = () => { video.play(); resizeCanvases(); logStatus("Camera Feed Active."); };
+      } catch (err) { logStatus("Camera Error: " + err.message); }
     }
 
     async function applyZoom(zoomVal) {
@@ -343,6 +300,90 @@
           const clamped = Math.max(caps.zoom.min, Math.min(caps.zoom.max, zoomVal));
           await currentTrack.applyConstraints({ advanced: [{ zoom: clamped }] });
         } catch (e) {}
+      }
+    }
+
+    async function initAI() {
+      try {
+        logStatus("Booting Neural Networks (WebGL)...");
+        await tf.setBackend('webgl');
+        await tf.ready();
+        logStatus("Loading COCO-SSD Model...");
+        cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        logStatus("Loading Handpose Model...");
+        handModel = await handpose.load();
+        logStatus("ALL SYSTEMS ONLINE.");
+        
+        // Setup AI Loop
+        isRunning = true;
+        setTimeout(aiDetectionLoop, 150);
+        
+        // Show Step 2
+        step1Btn.style.display = 'none';
+        step2Controls.style.display = 'flex';
+      } catch (e) {
+        logStatus("AI Load Failed: " + e.message);
+      }
+    }
+
+    let aiToggle = 0;
+    async function aiDetectionLoop() {
+      if (!isRunning) return;
+      
+      // Only process if video has valid dimensions
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+        try {
+          // Draw high-res video down to tiny 256x256 canvas for speed
+          aiCtx.drawImage(video, 0, 0, aiCanvas.width, aiCanvas.height);
+
+          // Alternate models to avoid blocking the main thread heavily
+          if (aiToggle === 0 && cocoModel) {
+            predictions = await cocoModel.detect(aiCanvas, 4, 0.4);
+            aiToggle = 1;
+          } 
+          else if (aiToggle === 1 && handModel) {
+            handPredictions = await handModel.estimateHands(aiCanvas);
+            processHandGestures(handPredictions);
+            aiToggle = 0;
+          }
+        } catch (e) {
+          console.warn("AI Loop Recoverable Error:", e);
+        }
+      }
+      
+      // Recursively queue the next frame (throttle to ~6 FPS for performance)
+      setTimeout(aiDetectionLoop, 150);
+    }
+
+    function processHandGestures(hands) {
+      if (hands.length === 0 || gestureCooldown) return;
+
+      const landmarks = hands[0].landmarks;
+      const thumbTip = landmarks[4];
+      const indexTip = landmarks[8];
+      const wrist = landmarks[0];
+      const middleTip = landmarks[12];
+
+      // Distances are calculated against the 256x256 scaled canvas
+      const pinchDist = Math.hypot(thumbTip[0] - indexTip[0], thumbTip[1] - indexTip[1]);
+      const handExtension = Math.hypot(wrist[0] - middleTip[0], wrist[1] - middleTip[1]);
+
+      if (pinchDist < 20) { // Scaled threshold for 256px
+        gestureCooldown = true;
+        const zooms = [0.6, 1.0, 2.0];
+        let nextIdx = (zooms.indexOf(targetZoom) + 1) % zooms.length;
+        applyZoom(zooms[nextIdx]);
+        
+        document.querySelectorAll('.lens-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector(`.lens-btn[data-zoom="${zooms[nextIdx].toFixed(1)}"]`).classList.add('active');
+        showNotification(`ZOOM: ${zooms[nextIdx]}X`);
+        
+        setTimeout(() => { gestureCooldown = false; }, 1200);
+      } 
+      else if (handExtension > 70) {
+        gestureCooldown = true;
+        resetOrientation();
+        setTimeout(() => { gestureCooldown = false; }, 1500);
       }
     }
 
@@ -368,6 +409,7 @@
       const vRatio = video.videoWidth / video.videoHeight || 16/9;
       const cRatio = width / height;
       let renderW = width, renderH = height, xOffset = 0, yOffset = 0;
+      
       if (cRatio > vRatio) {
         renderH = width / vRatio; yOffset = (height - renderH) / 2;
       } else {
@@ -376,7 +418,9 @@
 
       ctx.save();
       if (isUserFacing) { ctx.translate(width, 0); ctx.scale(-1, 1); }
-      ctx.drawImage(video, xOffset, yOffset, renderW, renderH);
+      if (video.readyState >= 2) {
+         ctx.drawImage(video, xOffset, yOffset, renderW, renderH);
+      }
       ctx.restore();
 
       const primaryColor = '#00f0ff';
@@ -389,7 +433,7 @@
       ctx.strokeStyle = primaryColor;
       ctx.fillStyle = primaryColor;
 
-      // Fix: AI Coordinates are now scaled up from the 256x256 grid to the screen size
+      // Scale coordinates from the 256x256 AI canvas back to the rendered video dimensions
       const aiScaleX = renderW / 256;
       const aiScaleY = renderH / 256;
       
@@ -397,18 +441,19 @@
       ctx.save();
       ctx.translate(pBbox, 0);
       
-      // Draw Objects
+      // Render AI Object Boxes
       predictions.forEach(pred => {
         let [x, y, w, h] = pred.bbox;
         x = x * aiScaleX + xOffset; y = y * aiScaleY + yOffset;
         w = w * aiScaleX; h = h * aiScaleY;
+        
         ctx.strokeStyle = secondaryColor; ctx.shadowColor = secondaryColor; ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, w, h);
         ctx.fillStyle = secondaryColor; ctx.font = '8px Courier New';
         ctx.fillText(`${pred.class.toUpperCase()} [${Math.round(pred.score * 100)}%]`, x, y - 3);
       });
 
-      // Draw Hand Landmarks
+      // Render Hand Gesture Landmarks
       handPredictions.forEach(hand => {
         ctx.fillStyle = primaryColor;
         hand.landmarks.forEach(pt => {
@@ -424,7 +469,7 @@
       ctx.save();
       ctx.translate(pPanels, 0);
 
-      // Left Panel
+      // Trapezius Curvature Left Panel
       ctx.save();
       ctx.transform(1, 0, -0.08, 1, 0, 0);
       ctx.fillStyle = primaryColor; ctx.font = '8px Courier New';
@@ -435,16 +480,17 @@
       ctx.fillText(`LENS: ${targetZoom}X`, leftX, cy + 1);
       ctx.restore();
 
-      // Right Panel
+      // Trapezius Curvature Right Panel
       ctx.save();
       ctx.transform(1, 0, 0.08, 1, 0, 0);
       const rightX = cx + 25;
       ctx.fillText(`HDG: ${telemetry.yaw}°`, rightX, cy - 35);
-      ctx.fillText(`FPS: 60`, rightX, cy - 23);
+      ctx.fillText(`LAT: ${Number(telemetry.lat).toFixed(4)}`, rightX, cy - 23);
+      ctx.fillText(`LON: ${Number(telemetry.lon).toFixed(4)}`, rightX, cy - 11);
       ctx.restore();
       ctx.restore();
 
-      // Map
+      // Satellite Mini-Map
       const pMap = getParallax(2.5, eye);
       const mapRadius = 26;
       const mapX = cx + 50 + pMap;
@@ -463,7 +509,7 @@
       ctx.fillStyle = secondaryColor; ctx.beginPath(); ctx.arc(mapX, mapY, 2.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = primaryColor; ctx.font = '7px Courier New'; ctx.fillText('SAT-NAV', mapX - 14, mapY + mapRadius + 8);
 
-      // Center Horizon
+      // Center Horizon & Pitch
       const pReticle = getParallax(3.2, eye);
       ctx.save();
       ctx.translate(pReticle, 0);
@@ -480,10 +526,20 @@
       ctx.font = '8px Courier New'; ctx.fillText(`P: ${telemetry.pitch}°`, 24, pitchOffset - 4);
       ctx.restore();
 
+      // Notifications Overlay
       if (notificationText) {
         ctx.fillStyle = secondaryColor; ctx.shadowColor = secondaryColor; ctx.font = 'bold 8px Courier New';
         ctx.fillText(notificationText, cx - (ctx.measureText(notificationText).width / 2), cy - 50);
       }
+      
+      // HUD Boundary Ring
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.min(width, height) * 0.18, -Math.PI / 4, Math.PI / 4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.min(width, height) * 0.18, (3 * Math.PI) / 4, (5 * Math.PI) / 4);
+      ctx.stroke();
+      
       ctx.restore();
     }
 
@@ -494,6 +550,17 @@
       drawHUD(rightCtx, cssW, cssH, 'right');
       requestAnimationFrame(renderLoop);
     }
+
+    // Step 1: Pre-load and sync. 
+    // This allows permissions to pop up without breaking fullscreen since fullscreen isn't requested yet.
+    step1Btn.addEventListener('click', async () => {
+      step1Btn.disabled = true;
+      step1Btn.innerText = "INITIALIZING...";
+      
+      initSensors();
+      await startCamera(null);
+      await initAI(); // This will eventually show step2Controls
+    });
 
     camSelect.addEventListener('change', (e) => {
       if (e.target.value) startCamera(e.target.value);
@@ -507,22 +574,15 @@
       });
     });
 
-    startBtn.addEventListener('click', () => {
-      // Must be synchronous inside the click event to satisfy Firefox/Chrome security rules
+    // Step 2: Everything is loaded. Lock fullscreen.
+    step2Btn.addEventListener('click', () => {
       goFullscreenAndLock();
-      
-      startOverlay.style.display = 'none';
-      initSensors();
-      startCamera(camSelect.value || null);
-      initAI(); // Asynchronous loading moved safely behind the synchronous fullscreen call
+      document.getElementById('start-overlay').style.display = 'none';
       requestAnimationFrame(renderLoop);
     });
 
+    // Backup Orientation Calibrate
     window.addEventListener('dblclick', resetOrientation);
-
-    navigator.mediaDevices?.getUserMedia({ video: true }).then(stream => {
-      stream.getTracks().forEach(t => t.stop()); populateCameras();
-    }).catch(() => {});
 
     window.addEventListener('resize', resizeCanvases);
     document.addEventListener('fullscreenchange', resizeCanvases);
