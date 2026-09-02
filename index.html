@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>JARVIS VR HUD - Aligned</title>
+  <title>JARVIS VR HUD - Calibrated</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html {
@@ -27,15 +27,16 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      gap: 15px;
+      gap: 12px;
       padding: 20px;
+      overflow-y: auto;
     }
     .btn {
       background: rgba(0, 240, 255, 0.1);
       border: 2px solid #00f0ff;
       color: #00f0ff;
-      padding: 15px 30px;
-      font-size: 1.2rem;
+      padding: 12px 24px;
+      font-size: 1.1rem;
       font-weight: bold;
       border-radius: 8px;
       cursor: pointer;
@@ -69,23 +70,29 @@
       display: block;
     }
     .control-group {
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
-      color: #fff; font-size: 0.85rem; width: 100%; max-width: 320px;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      color: #fff; font-size: 0.8rem; width: 100%; max-width: 300px;
     }
     select {
       background: #000; color: #00f0ff; border: 1px solid #00f0ff;
-      padding: 10px; border-radius: 4px; width: 100%; font-family: monospace;
+      padding: 8px; border-radius: 4px; width: 100%; font-family: monospace;
     }
-    .lens-toggle { display: flex; gap: 10px; margin-top: 5px; }
+    .lens-toggle { display: flex; gap: 8px; }
     .lens-btn {
       background: rgba(0, 240, 255, 0.1); border: 1px solid #00f0ff;
-      color: #00f0ff; padding: 8px 16px; font-size: 0.9rem;
+      color: #00f0ff; padding: 6px 12px; font-size: 0.85rem;
       border-radius: 4px; cursor: pointer;
     }
     .lens-btn.active { background: #00f0ff; color: #000; font-weight: bold; }
+    .slider-row {
+      display: flex; justify-content: space-between; width: 100%; font-size: 0.75rem; color: #aaa;
+    }
+    input[type=range] {
+      width: 100%; accent-color: #00f0ff; cursor: pointer;
+    }
     .gesture-info {
-      color: #00f0ff; font-size: 0.8rem; text-align: center;
-      border: 1px dashed rgba(0, 240, 255, 0.4); padding: 10px; border-radius: 4px; margin-top: 5px;
+      color: #00f0ff; font-size: 0.75rem; text-align: center;
+      border: 1px dashed rgba(0, 240, 255, 0.4); padding: 8px; border-radius: 4px;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
@@ -95,7 +102,7 @@
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.8rem; text-align: center;">MARK-LXXXV<br>HUD</h1>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.5rem; text-align: center;">MARK-LXXXV<br>VR HUD</h1>
     
     <div class="control-group">
       <label for="cam-select">Camera Source:</label>
@@ -103,6 +110,7 @@
     </div>
 
     <div class="control-group">
+      <label>Lens Zoom Level:</label>
       <div class="lens-toggle">
         <button class="lens-btn active" data-zoom="0.6">0.6x</button>
         <button class="lens-btn" data-zoom="1.0">1.0x</button>
@@ -110,9 +118,19 @@
       </div>
     </div>
 
+    <!-- Double Vision Calibration Sliders -->
+    <div class="control-group">
+      <div class="slider-row"><span>Lens Separation (IPD Offset):</span><span id="ipd-val">0px</span></div>
+      <input type="range" id="ipd-slider" min="-60" max="60" value="0" step="1">
+    </div>
+
+    <div class="control-group">
+      <div class="slider-row"><span>Field of View (Scale):</span><span id="fov-val">1.0x</span></div>
+      <input type="range" id="fov-slider" min="0.7" max="1.5" value="1.0" step="0.05">
+    </div>
+
     <div class="gesture-info">
-      🖐️ <b>Open Palm:</b> Recalibrate Orientation<br/>
-      👌 <b>Pinch:</b> Cycle Camera Zoom
+      🖐️ <b>Open Palm:</b> Zero Orientation | 👌 <b>Pinch:</b> Change Zoom
     </div>
 
     <button class="btn" id="start-btn">ENGAGE VR HUD</button>
@@ -140,6 +158,11 @@
     const startOverlay = document.getElementById('start-overlay');
     const camSelect = document.getElementById('cam-select');
     const lensBtns = document.querySelectorAll('.lens-btn');
+    
+    const ipdSlider = document.getElementById('ipd-slider');
+    const ipdVal = document.getElementById('ipd-val');
+    const fovSlider = document.getElementById('fov-slider');
+    const fovVal = document.getElementById('fov-val');
 
     let cocoModel = null;
     let handModel = null;
@@ -154,6 +177,24 @@
     let currentTrack = null;
     let targetZoom = 0.6;
     let isUserFacing = false;
+
+    // Calibration configuration saved to local storage
+    let userIPD = parseInt(localStorage.getItem('hud_ipd') || '0');
+    let userFOV = parseFloat(localStorage.getItem('hud_fov') || '1.0');
+    ipdSlider.value = userIPD; ipdVal.innerText = userIPD + 'px';
+    fovSlider.value = userFOV; fovVal.innerText = userFOV + 'x';
+
+    ipdSlider.addEventListener('input', (e) => {
+      userIPD = parseInt(e.target.value);
+      ipdVal.innerText = userIPD + 'px';
+      localStorage.setItem('hud_ipd', userIPD);
+    });
+
+    fovSlider.addEventListener('input', (e) => {
+      userFOV = parseFloat(e.target.value);
+      fovVal.innerText = userFOV + 'x';
+      localStorage.setItem('hud_fov', userFOV);
+    });
 
     let notificationText = "";
     let notificationTimer = null;
@@ -218,7 +259,6 @@
     let aiToggle = false;
 
     async function aiDetectionLoop(timestamp) {
-      // Slower polling rate (every 800ms) for extremely smooth non-laggy gesture tracking
       if (timestamp - lastAITime > 800) {
         if (video.readyState === 4 && video.videoWidth > 0) {
           aiCtx.drawImage(video, 0, 0, 192, 192);
@@ -354,7 +394,6 @@
       }
     }
 
-    // Fixes the double image matching physical screen aspect ratio cleanly inside fullscreen
     function resizeCanvases() {
       const dpr = window.devicePixelRatio || 1;
       const cssWidth = window.innerWidth / 2;
@@ -364,7 +403,7 @@
         c.width = Math.floor(cssWidth * dpr);
         c.height = Math.floor(cssHeight * dpr);
         const ctx = c.getContext('2d');
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset matrix to avoid compounding scaling
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
       });
     }
@@ -382,6 +421,16 @@
       } else {
         renderW = height * vRatio; xOffset = (width - renderW) / 2;
       }
+
+      // Apply User Calibration Scale (FOV) & IPD Lens Shift Offset
+      ctx.save();
+      const shiftX = (eye === 'left' ? 1 : -1) * (userIPD / 2);
+      ctx.translate(shiftX, 0);
+      
+      // Scale around the center of the viewport for crisp zoom adjustments
+      ctx.translate(width / 2, height / 2);
+      ctx.scale(userFOV, userFOV);
+      ctx.translate(-width / 2, -height / 2);
 
       ctx.save();
       if (isUserFacing) { ctx.translate(width, 0); ctx.scale(-1, 1); }
@@ -486,7 +535,8 @@
         ctx.fillStyle = secondaryColor; ctx.shadowColor = secondaryColor; ctx.font = 'bold 8px Courier New';
         ctx.fillText(notificationText, cx - (ctx.measureText(notificationText).width / 2), cy - 50);
       }
-      ctx.restore();
+      
+      ctx.restore(); // Restore calibration scaling matrix
     }
 
     function renderLoop() {
