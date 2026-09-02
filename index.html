@@ -684,8 +684,12 @@
       ctx.fillText(`SYS: ONLINE`, leftX, cy - 35);
       ctx.fillText(`ALT: ${telemetry.alt}m`, leftX, cy - 23);
       ctx.fillText(`SPD: ${telemetry.speed}km/h`, leftX, cy - 11);
-      const batteryLabel = batteryLevel === null ? 'BATT: --' : `BATT: ${batteryLevel}%`;
-      const batteryColor = batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
+      const batteryLabel = batteryLevel === null
+        ? 'BATT: --'
+        : `BATT: ${batteryLevel}%${batteryCharging ? ' CHG' : ''}`;
+      const batteryColor = batteryCharging
+        ? '#7dff7d'
+        : batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
       ctx.fillStyle = batteryColor;
       ctx.fillText(batteryLabel, leftX, cy + 1);
       ctx.strokeStyle = batteryColor;
