@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>JARVIS VR HUD - Fullscreen</title>
+  <title>JARVIS VR HUD - 3D Holographic</title>
   <style>
     * {
       box-sizing: border-box;
@@ -21,7 +21,6 @@
       overflow: hidden;
       width: 100vw;
       height: 100vh;
-      /* Ensures content fills full display including notch areas */
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
     #start-overlay {
@@ -118,8 +117,8 @@
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.6rem;">MARK-LXXXV HUD</h1>
-    <p style="color:#aaa; text-align:center; font-size:0.85rem;">Select camera/lens, then press button to enter Fullscreen VR mode.</p>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.6rem;">MARK-LXXXV 3D HUD</h1>
+    <p style="color:#aaa; text-align:center; font-size:0.85rem;">Select camera/lens, then press button to enter Fullscreen 3D VR mode.</p>
 
     <div class="control-group">
       <label for="cam-select">Available Camera Hardware:</label>
@@ -137,7 +136,7 @@
       </div>
     </div>
 
-    <button class="btn" id="start-btn">ENGAGE FULLSCREEN HUD</button>
+    <button class="btn" id="start-btn">ENGAGE 3D HUD SYSTEM</button>
   </div>
 
   <video id="webcam" autoplay playsinline muted></video>
@@ -170,29 +169,17 @@
     let mapImageLoaded = false;
     let currentTileUrl = '';
 
-    // Trigger Mobile Fullscreen & Lock Orientation
     async function enableFullscreenMode() {
       const docEl = document.documentElement;
-
       try {
-        if (docEl.requestFullscreen) {
-          await docEl.requestFullscreen();
-        } else if (docEl.webkitRequestFullscreen) {
-          await docEl.webkitRequestFullscreen();
-        } else if (docEl.msRequestFullscreen) {
-          await docEl.msRequestFullscreen();
-        }
+        if (docEl.requestFullscreen) await docEl.requestFullscreen();
+        else if (docEl.webkitRequestFullscreen) await docEl.webkitRequestFullscreen();
       } catch (e) {
-        console.warn('Fullscreen request bypassed/failed:', e);
+        console.warn('Fullscreen request failed:', e);
       }
 
-      // Lock screen orientation into landscape mode for VR Cardboard
       if (screen.orientation && screen.orientation.lock) {
-        try {
-          await screen.orientation.lock('landscape');
-        } catch (e) {
-          console.warn('Orientation lock unsupported/bypassed:', e);
-        }
+        try { await screen.orientation.lock('landscape'); } catch (e) {}
       }
     }
 
@@ -208,10 +195,7 @@
         currentTileUrl = tileUrl;
         const img = new Image();
         img.crossOrigin = 'Anonymous';
-        img.onload = () => {
-          mapImage = img;
-          mapImageLoaded = true;
-        };
+        img.onload = () => { mapImage = img; mapImageLoaded = true; };
         img.src = tileUrl;
       }
     }
@@ -268,7 +252,6 @@
         videoInputs.forEach((device, index) => {
           const opt = document.createElement('option');
           opt.value = device.deviceId;
-          
           let label = device.label || `Camera Input ${index + 1}`;
           if (label.toLowerCase().includes('wide') || label.toLowerCase().includes('0') || index === 2) {
             label += ' (Ultra Wide / 0.6x)';
@@ -286,16 +269,9 @@
         currentStream.getTracks().forEach(t => t.stop());
       }
 
-      const videoConstraints = {
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      };
-
-      if (deviceId) {
-        videoConstraints.deviceId = { exact: deviceId };
-      } else {
-        videoConstraints.facingMode = { ideal: 'environment' };
-      }
+      const videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+      if (deviceId) videoConstraints.deviceId = { exact: deviceId };
+      else videoConstraints.facingMode = { ideal: 'environment' };
 
       try {
         currentStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
@@ -307,7 +283,6 @@
 
         await populateCameras();
         if (deviceId) camSelect.value = deviceId;
-
         await applyZoom(targetZoom);
 
         video.onloadedmetadata = () => {
@@ -315,7 +290,7 @@
           resizeCanvases();
         };
       } catch (err) {
-        alert('Camera Access Denied or Hardware Unavailable: ' + err.message);
+        alert('Camera Access Denied: ' + err.message);
       }
     }
 
@@ -329,7 +304,7 @@
           const clamped = Math.max(caps.zoom.min, Math.min(caps.zoom.max, zoomVal));
           await currentTrack.applyConstraints({ advanced: [{ zoom: clamped }] });
         } catch (e) {
-          console.warn('Zoom constraint unsupported:', e);
+          console.warn('Zoom unsupported:', e);
         }
       }
     }
@@ -343,10 +318,17 @@
       });
     }
 
-    function drawHUD(ctx, width, height) {
+    // Stereo Parallax Calculation Function
+    // Positive depth pulls elements closer to the eyes (floating forward in 3D)
+    function getParallax(depthLevel, eye) {
+      const pxAmount = 3.5; // Depth separation magnitude
+      return (eye === 'left' ? 1 : -1) * depthLevel * pxAmount;
+    }
+
+    function drawHUD(ctx, width, height, eye) {
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Render Video Background
+      // 1. Level 0 Depth: Video Stream (Infinite Background Layer, z = 0)
       const vRatio = video.videoWidth / video.videoHeight || 16/9;
       const cRatio = width / height;
       let renderW = width, renderH = height, xOffset = 0, yOffset = 0;
@@ -371,11 +353,122 @@
       const cx = width / 2;
       const cy = height / 2;
 
+      // Holographic Glow Properties
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = primaryColor;
       ctx.strokeStyle = primaryColor;
       ctx.fillStyle = primaryColor;
-      ctx.lineWidth = 1;
 
-      // 2. Reticle & Pitch Horizon
+      // 2. Level 1 Depth: Object Bounding Boxes (Floating in mid-air, z = 1.2)
+      const pBbox = getParallax(1.2, eye);
+      const scaleX = renderW / (video.videoWidth || 1);
+      const scaleY = renderH / (video.videoHeight || 1);
+
+      ctx.save();
+      ctx.translate(pBbox, 0);
+      predictions.forEach(pred => {
+        let [x, y, w, h] = pred.bbox;
+        x = x * scaleX + xOffset;
+        y = y * scaleY + yOffset;
+        w = w * scaleX;
+        h = h * scaleY;
+
+        ctx.strokeStyle = secondaryColor;
+        ctx.shadowColor = secondaryColor;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x, y, w, h);
+
+        const len = 5;
+        ctx.strokeStyle = primaryColor;
+        ctx.beginPath();
+        ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
+        ctx.moveTo(x + w - len, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + len);
+        ctx.stroke();
+
+        ctx.fillStyle = secondaryColor;
+        ctx.font = '8px Courier New';
+        ctx.fillText(`${pred.class.toUpperCase()} [${Math.round(pred.score * 100)}%]`, x, y - 3);
+      });
+      ctx.restore();
+
+      // Reset Glow
+      ctx.shadowColor = primaryColor;
+
+      // 3. Level 2 Depth: Visor Curved Telemetry Panels (z = 2.0)
+      const pPanels = getParallax(2.0, eye);
+      ctx.save();
+      ctx.translate(pPanels, 0);
+
+      // Left Panel with Visor Curve Skew Transform
+      ctx.save();
+      ctx.transform(1, 0, -0.08, 1, 0, 0); // Trapezius perspective tilt
+      ctx.fillStyle = primaryColor;
+      ctx.font = '8px Courier New';
+      const leftX = cx - 85;
+      ctx.fillText(`SYS: ONLINE`, leftX, cy - 35);
+      ctx.fillText(`ALT: ${telemetry.alt}m`, leftX, cy - 23);
+      ctx.fillText(`SPD: ${telemetry.speed}km/h`, leftX, cy - 11);
+      ctx.fillText(`LENS: ${targetZoom}X`, leftX, cy + 1);
+      ctx.restore();
+
+      // Right Top Panel with Opposite Visor Skew
+      ctx.save();
+      ctx.transform(1, 0, 0.08, 1, 0, 0);
+      const rightX = cx + 25;
+      ctx.fillText(`HDG: ${telemetry.yaw}°`, rightX, cy - 35);
+      ctx.fillText(`FPS: 60`, rightX, cy - 23);
+      ctx.restore();
+
+      ctx.restore(); // End Level 2
+
+      // 4. Level 2.5 Depth: Satellite Mini-Map (Angled Visor Element, z = 2.5)
+      const pMap = getParallax(2.5, eye);
+      const mapRadius = 26;
+      const mapX = cx + 50 + pMap;
+      const mapY = cy + 22;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
+      ctx.clip();
+
+      if (mapImageLoaded) {
+        ctx.drawImage(mapImage, mapX - mapRadius, mapY - mapRadius, mapRadius * 2, mapRadius * 2);
+      } else {
+        ctx.fillStyle = '#001520';
+        ctx.fillRect(mapX - mapRadius, mapY - mapRadius, mapRadius * 2, mapRadius * 2);
+      }
+      ctx.restore();
+
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(mapX - mapRadius, mapY); ctx.lineTo(mapX + mapRadius, mapY);
+      ctx.moveTo(mapX, mapY - mapRadius); ctx.lineTo(mapX, mapY + mapRadius);
+      ctx.stroke();
+
+      ctx.fillStyle = secondaryColor;
+      ctx.shadowColor = secondaryColor;
+      ctx.beginPath();
+      ctx.arc(mapX, mapY, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = primaryColor;
+      ctx.shadowColor = primaryColor;
+      ctx.font = '7px Courier New';
+      ctx.fillText('SAT-NAV', mapX - 14, mapY + mapRadius + 8);
+
+      // 5. Level 3 Depth: Reticle & Horizon Line (Closest to User, z = 3.2)
+      const pReticle = getParallax(3.2, eye);
+      ctx.save();
+      ctx.translate(pReticle, 0);
+
+      ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(cx, cy, 18, 0, Math.PI * 2);
       ctx.stroke();
@@ -400,100 +493,20 @@
       ctx.fillText(`P: ${telemetry.pitch}°`, 24, pitchOffset - 4);
       ctx.restore();
 
-      // 3. Bounding Boxes
-      const scaleX = renderW / (video.videoWidth || 1);
-      const scaleY = renderH / (video.videoHeight || 1);
-
-      predictions.forEach(pred => {
-        let [x, y, w, h] = pred.bbox;
-        x = x * scaleX + xOffset;
-        y = y * scaleY + yOffset;
-        w = w * scaleX;
-        h = h * scaleY;
-
-        ctx.strokeStyle = secondaryColor;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x, y, w, h);
-
-        const len = 5;
-        ctx.strokeStyle = primaryColor;
-        ctx.beginPath();
-        ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
-        ctx.moveTo(x + w - len, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + len);
-        ctx.stroke();
-
-        ctx.fillStyle = secondaryColor;
-        ctx.font = '8px Courier New';
-        const label = `${pred.class.toUpperCase()} [${Math.round(pred.score * 100)}%]`;
-        ctx.fillText(label, x, y - 3);
-      });
-
-      // 4. Centered Telemetry
-      ctx.fillStyle = primaryColor;
-      ctx.font = '8px Courier New';
-
-      const leftX = cx - 85;
-      ctx.fillText(`SYS: ONLINE`, leftX, cy - 35);
-      ctx.fillText(`ALT: ${telemetry.alt}m`, leftX, cy - 23);
-      ctx.fillText(`SPD: ${telemetry.speed}km/h`, leftX, cy - 11);
-      ctx.fillText(`LENS: ${targetZoom}X`, leftX, cy + 1);
-
-      const rightX = cx + 25;
-      ctx.fillText(`HDG: ${telemetry.yaw}°`, rightX, cy - 35);
-      ctx.fillText(`FPS: 60`, rightX, cy - 23);
-
-      // 5. Satellite Map (Bottom Right)
-      const mapRadius = 26;
-      const mapX = cx + 50;
-      const mapY = cy + 22;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
-      ctx.clip();
-
-      if (mapImageLoaded) {
-        ctx.drawImage(mapImage, mapX - mapRadius, mapY - mapRadius, mapRadius * 2, mapRadius * 2);
-      } else {
-        ctx.fillStyle = '#001520';
-        ctx.fillRect(mapX - mapRadius, mapY - mapRadius, mapRadius * 2, mapRadius * 2);
-      }
-      ctx.restore();
-
-      ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(mapX - mapRadius, mapY); ctx.lineTo(mapX + mapRadius, mapY);
-      ctx.moveTo(mapX, mapY - mapRadius); ctx.lineTo(mapX, mapY + mapRadius);
-      ctx.stroke();
-
-      ctx.fillStyle = secondaryColor;
-      ctx.beginPath();
-      ctx.arc(mapX, mapY, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = primaryColor;
-      ctx.font = '7px Courier New';
-      ctx.fillText('SAT-NAV', mapX - 14, mapY + mapRadius + 8);
-
-      // Outer Inner Ring
+      // Outer Dynamic 3D Arc Frame
       ctx.beginPath();
       ctx.arc(cx, cy, Math.min(width, height) * 0.18, -Math.PI / 4, Math.PI / 4);
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(cx, cy, Math.min(width, height) * 0.18, (3 * Math.PI) / 4, (5 * Math.PI) / 4);
       ctx.stroke();
+
+      ctx.restore(); // End Level 3
     }
 
     function renderLoop() {
-      drawHUD(leftCtx, leftCanvas.width, leftCanvas.height);
-      drawHUD(rightCtx, rightCanvas.width, rightCanvas.height);
+      drawHUD(leftCtx, leftCanvas.width, leftCanvas.height, 'left');
+      drawHUD(rightCtx, rightCanvas.width, rightCanvas.height, 'right');
       requestAnimationFrame(renderLoop);
     }
 
@@ -511,7 +524,6 @@
     });
 
     startBtn.addEventListener('click', async () => {
-      // Direct user interaction event allows triggering Fullscreen & Orientation API
       await enableFullscreenMode();
       startOverlay.style.display = 'none';
       initSensors();
@@ -528,7 +540,6 @@
       .catch(() => {});
 
     window.addEventListener('resize', resizeCanvases);
-    // Listen for orientation/fullscreen changes to resize canvas viewports dynamically
     document.addEventListener('fullscreenchange', resizeCanvases);
     window.addEventListener('orientationchange', resizeCanvases);
   </script>
