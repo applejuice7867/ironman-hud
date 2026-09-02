@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>JARVIS VR HUD - 3D Holographic</title>
+  <title>JARVIS VR HUD - High-Res Gesture Controlled</title>
   <style>
     * {
       box-sizing: border-box;
@@ -68,9 +68,7 @@
       display: none;
     }
     canvas {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+      display: block;
     }
     .control-group {
       display: flex;
@@ -110,15 +108,25 @@
       color: #000;
       font-weight: bold;
     }
+    .gesture-info {
+      color: #00f0ff;
+      font-size: 0.75rem;
+      text-align: center;
+      border: 1px dashed rgba(0, 240, 255, 0.4);
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 5px;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose"></script>
 </head>
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.6rem;">MARK-LXXXV 3D HUD</h1>
-    <p style="color:#aaa; text-align:center; font-size:0.85rem;">Select camera/lens, then press button to enter Fullscreen 3D VR mode.</p>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.6rem;">MARK-LXXXV HIGH-RES HUD</h1>
+    <p style="color:#aaa; text-align:center; font-size:0.85rem;">Select camera hardware & launch full 3D VR Mode.</p>
 
     <div class="control-group">
       <label for="cam-select">Available Camera Hardware:</label>
@@ -136,7 +144,12 @@
       </div>
     </div>
 
-    <button class="btn" id="start-btn">ENGAGE 3D HUD SYSTEM</button>
+    <div class="gesture-info">
+      🖐️ <b>Open Palm:</b> Recalibrate/Zero Orientation<br/>
+      👌 <b>Pinch:</b> Cycle Camera Zoom
+    </div>
+
+    <button class="btn" id="start-btn">ENGAGE HIGH-RES HUD</button>
   </div>
 
   <video id="webcam" autoplay playsinline muted></video>
@@ -157,17 +170,40 @@
     const camSelect = document.getElementById('cam-select');
     const lensBtns = document.querySelectorAll('.lens-btn');
 
-    let model = null;
+    let cocoModel = null;
+    let handModel = null;
     let predictions = [];
+    let handPredictions = [];
+    
+    let rawOrientation = { pitch: 0, roll: 0, yaw: 0 };
+    let orientationOffset = { pitch: 0, roll: 0, yaw: 0 };
     let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 34.0259, lon: -118.7798, alt: 124.5, speed: 0.0 };
+    
     let currentStream = null;
     let currentTrack = null;
     let targetZoom = 0.6;
     let isUserFacing = false;
 
+    let notificationText = "";
+    let notificationTimer = null;
+    let gestureCooldown = false;
+
     let mapImage = new Image();
     let mapImageLoaded = false;
     let currentTileUrl = '';
+
+    function showNotification(msg) {
+      notificationText = msg;
+      if (notificationTimer) clearTimeout(notificationTimer);
+      notificationTimer = setTimeout(() => { notificationText = ""; }, 2000);
+    }
+
+    function resetOrientation() {
+      orientationOffset.pitch = rawOrientation.pitch;
+      orientationOffset.roll = rawOrientation.roll;
+      orientationOffset.yaw = rawOrientation.yaw;
+      showNotification("ORIENTATION CALIBRATED [ZEROED]");
+    }
 
     async function enableFullscreenMode() {
       const docEl = document.documentElement;
@@ -200,16 +236,52 @@
       }
     }
 
-    async function initObjectDetection() {
-      model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      detectObjects();
+    async function initAI() {
+      cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+      handModel = await handpose.load();
+      detectLoop();
     }
 
-    async function detectObjects() {
-      if (model && video.readyState === 4) {
-        predictions = await model.detect(video, 6, 0.4);
+    async function detectLoop() {
+      if (video.readyState === 4) {
+        if (cocoModel) {
+          predictions = await cocoModel.detect(video, 4, 0.4);
+        }
+        if (handModel) {
+          handPredictions = await handModel.estimateHands(video);
+          processHandGestures(handPredictions);
+        }
       }
-      setTimeout(detectObjects, 150);
+      setTimeout(detectLoop, 120);
+    }
+
+    function processHandGestures(hands) {
+      if (hands.length === 0 || gestureCooldown) return;
+
+      const landmarks = hands[0].landmarks;
+      const thumbTip = landmarks[4];
+      const indexTip = landmarks[8];
+      const wrist = landmarks[0];
+      const middleTip = landmarks[12];
+
+      const pinchDist = Math.hypot(thumbTip[0] - indexTip[0], thumbTip[1] - indexTip[1]);
+      const handExtension = Math.hypot(wrist[0] - middleTip[0], wrist[1] - middleTip[1]);
+
+      // Pinch Gesture: Cycle Zoom
+      if (pinchDist < 30) {
+        gestureCooldown = true;
+        const zooms = [0.6, 1.0, 2.0];
+        let nextIdx = (zooms.indexOf(targetZoom) + 1) % zooms.length;
+        applyZoom(zooms[nextIdx]);
+        showNotification(`GESTURE: ZOOM ${zooms[nextIdx]}X`);
+        setTimeout(() => { gestureCooldown = false; }, 1200);
+      } 
+      // Open Palm Gesture: Calibrate Orientation
+      else if (handExtension > 110) {
+        gestureCooldown = true;
+        resetOrientation();
+        setTimeout(() => { gestureCooldown = false; }, 1500);
+      }
     }
 
     function initSensors() {
@@ -238,9 +310,13 @@
     }
 
     function handleOrientation(e) {
-      telemetry.pitch = e.beta ? e.beta.toFixed(1) : 0;
-      telemetry.roll = e.gamma ? e.gamma.toFixed(1) : 0;
-      telemetry.yaw = e.alpha ? e.alpha.toFixed(1) : 0;
+      rawOrientation.pitch = e.beta || 0;
+      rawOrientation.roll = e.gamma || 0;
+      rawOrientation.yaw = e.alpha || 0;
+
+      telemetry.pitch = (rawOrientation.pitch - orientationOffset.pitch).toFixed(1);
+      telemetry.roll = (rawOrientation.roll - orientationOffset.roll).toFixed(1);
+      telemetry.yaw = ((rawOrientation.yaw - orientationOffset.yaw + 360) % 360).toFixed(1);
     }
 
     async function populateCameras() {
@@ -269,7 +345,8 @@
         currentStream.getTracks().forEach(t => t.stop());
       }
 
-      const videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+      // High-Resolution 1080p Video Constraints
+      const videoConstraints = { width: { ideal: 1920 }, height: { ideal: 1080 } };
       if (deviceId) videoConstraints.deviceId = { exact: deviceId };
       else videoConstraints.facingMode = { ideal: 'environment' };
 
@@ -309,26 +386,31 @@
       }
     }
 
+    // High DPI / Retina Display Sharp Canvas Scaling
     function resizeCanvases() {
-      const width = window.innerWidth / 2;
-      const height = window.innerHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const cssWidth = window.innerWidth / 2;
+      const cssHeight = window.innerHeight;
+
       [leftCanvas, rightCanvas].forEach(c => {
-        c.width = width;
-        c.height = height;
+        c.width = cssWidth * dpr;
+        c.height = cssHeight * dpr;
+        c.style.width = cssWidth + 'px';
+        c.style.height = cssHeight + 'px';
+        const ctx = c.getContext('2d');
+        ctx.scale(dpr, dpr);
       });
     }
 
-    // Stereo Parallax Calculation Function
-    // Positive depth pulls elements closer to the eyes (floating forward in 3D)
     function getParallax(depthLevel, eye) {
-      const pxAmount = 3.5; // Depth separation magnitude
+      const pxAmount = 3.5;
       return (eye === 'left' ? 1 : -1) * depthLevel * pxAmount;
     }
 
     function drawHUD(ctx, width, height, eye) {
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Level 0 Depth: Video Stream (Infinite Background Layer, z = 0)
+      // 1. Level 0: Video Stream
       const vRatio = video.videoWidth / video.videoHeight || 16/9;
       const cRatio = width / height;
       let renderW = width, renderH = height, xOffset = 0, yOffset = 0;
@@ -353,13 +435,12 @@
       const cx = width / 2;
       const cy = height / 2;
 
-      // Holographic Glow Properties
       ctx.shadowBlur = 8;
       ctx.shadowColor = primaryColor;
       ctx.strokeStyle = primaryColor;
       ctx.fillStyle = primaryColor;
 
-      // 2. Level 1 Depth: Object Bounding Boxes (Floating in mid-air, z = 1.2)
+      // 2. Level 1: Object & Hand Bounding Boxes
       const pBbox = getParallax(1.2, eye);
       const scaleX = renderW / (video.videoWidth || 1);
       const scaleY = renderH / (video.videoHeight || 1);
@@ -368,40 +449,41 @@
       ctx.translate(pBbox, 0);
       predictions.forEach(pred => {
         let [x, y, w, h] = pred.bbox;
-        x = x * scaleX + xOffset;
-        y = y * scaleY + yOffset;
-        w = w * scaleX;
-        h = h * scaleY;
+        x = x * scaleX + xOffset; y = y * scaleY + yOffset;
+        w = w * scaleX; h = h * scaleY;
 
         ctx.strokeStyle = secondaryColor;
         ctx.shadowColor = secondaryColor;
         ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, w, h);
 
-        const len = 5;
-        ctx.strokeStyle = primaryColor;
-        ctx.beginPath();
-        ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
-        ctx.moveTo(x + w - len, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + len);
-        ctx.stroke();
-
         ctx.fillStyle = secondaryColor;
         ctx.font = '8px Courier New';
         ctx.fillText(`${pred.class.toUpperCase()} [${Math.round(pred.score * 100)}%]`, x, y - 3);
       });
+
+      // Render Detected Hand Keypoints (Gesture Target Tracking)
+      handPredictions.forEach(hand => {
+        ctx.fillStyle = primaryColor;
+        hand.landmarks.forEach(pt => {
+          const hx = pt[0] * scaleX + xOffset;
+          const hy = pt[1] * scaleY + yOffset;
+          ctx.beginPath();
+          ctx.arc(hx, hy, 2, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      });
       ctx.restore();
 
-      // Reset Glow
       ctx.shadowColor = primaryColor;
 
-      // 3. Level 2 Depth: Visor Curved Telemetry Panels (z = 2.0)
+      // 3. Level 2: Curved Telemetry Panels
       const pPanels = getParallax(2.0, eye);
       ctx.save();
       ctx.translate(pPanels, 0);
 
-      // Left Panel with Visor Curve Skew Transform
       ctx.save();
-      ctx.transform(1, 0, -0.08, 1, 0, 0); // Trapezius perspective tilt
+      ctx.transform(1, 0, -0.08, 1, 0, 0);
       ctx.fillStyle = primaryColor;
       ctx.font = '8px Courier New';
       const leftX = cx - 85;
@@ -411,7 +493,6 @@
       ctx.fillText(`LENS: ${targetZoom}X`, leftX, cy + 1);
       ctx.restore();
 
-      // Right Top Panel with Opposite Visor Skew
       ctx.save();
       ctx.transform(1, 0, 0.08, 1, 0, 0);
       const rightX = cx + 25;
@@ -419,9 +500,9 @@
       ctx.fillText(`FPS: 60`, rightX, cy - 23);
       ctx.restore();
 
-      ctx.restore(); // End Level 2
+      ctx.restore();
 
-      // 4. Level 2.5 Depth: Satellite Mini-Map (Angled Visor Element, z = 2.5)
+      // 4. Level 2.5: Satellite Mini-Map
       const pMap = getParallax(2.5, eye);
       const mapRadius = 26;
       const mapX = cx + 50 + pMap;
@@ -445,25 +526,16 @@
       ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.strokeStyle = 'rgba(0, 240, 255, 0.4)';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath();
-      ctx.moveTo(mapX - mapRadius, mapY); ctx.lineTo(mapX + mapRadius, mapY);
-      ctx.moveTo(mapX, mapY - mapRadius); ctx.lineTo(mapX, mapY + mapRadius);
-      ctx.stroke();
-
       ctx.fillStyle = secondaryColor;
-      ctx.shadowColor = secondaryColor;
       ctx.beginPath();
       ctx.arc(mapX, mapY, 2.5, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = primaryColor;
-      ctx.shadowColor = primaryColor;
       ctx.font = '7px Courier New';
       ctx.fillText('SAT-NAV', mapX - 14, mapY + mapRadius + 8);
 
-      // 5. Level 3 Depth: Reticle & Horizon Line (Closest to User, z = 3.2)
+      // 5. Level 3: Reticle & Horizon Line
       const pReticle = getParallax(3.2, eye);
       ctx.save();
       ctx.translate(pReticle, 0);
@@ -483,30 +555,30 @@
       ctx.rotate((-telemetry.roll * Math.PI) / 180);
 
       ctx.beginPath();
-      ctx.moveTo(-40, pitchOffset);
-      ctx.lineTo(-20, pitchOffset);
-      ctx.moveTo(20, pitchOffset);
-      ctx.lineTo(40, pitchOffset);
+      ctx.moveTo(-40, pitchOffset); ctx.lineTo(-20, pitchOffset);
+      ctx.moveTo(20, pitchOffset); ctx.lineTo(40, pitchOffset);
       ctx.stroke();
 
       ctx.font = '8px Courier New';
       ctx.fillText(`P: ${telemetry.pitch}°`, 24, pitchOffset - 4);
       ctx.restore();
 
-      // Outer Dynamic 3D Arc Frame
-      ctx.beginPath();
-      ctx.arc(cx, cy, Math.min(width, height) * 0.18, -Math.PI / 4, Math.PI / 4);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(cx, cy, Math.min(width, height) * 0.18, (3 * Math.PI) / 4, (5 * Math.PI) / 4);
-      ctx.stroke();
+      // Notification Banner
+      if (notificationText) {
+        ctx.fillStyle = secondaryColor;
+        ctx.shadowColor = secondaryColor;
+        ctx.font = 'bold 8px Courier New';
+        ctx.fillText(notificationText, cx - (ctx.measureText(notificationText).width / 2), cy - 50);
+      }
 
-      ctx.restore(); // End Level 3
+      ctx.restore();
     }
 
     function renderLoop() {
-      drawHUD(leftCtx, leftCanvas.width, leftCanvas.height, 'left');
-      drawHUD(rightCtx, rightCanvas.width, rightCanvas.height, 'right');
+      const cssW = window.innerWidth / 2;
+      const cssH = window.innerHeight;
+      drawHUD(leftCtx, cssW, cssH, 'left');
+      drawHUD(rightCtx, cssW, cssH, 'right');
       requestAnimationFrame(renderLoop);
     }
 
@@ -528,9 +600,12 @@
       startOverlay.style.display = 'none';
       initSensors();
       await startCamera(camSelect.value || null);
-      initObjectDetection();
+      initAI();
       requestAnimationFrame(renderLoop);
     });
+
+    // Double tap screen anywhere inside VR mode as backup orientation reset
+    window.addEventListener('dblclick', resetOrientation);
 
     navigator.mediaDevices?.getUserMedia({ video: true })
       .then(stream => {
