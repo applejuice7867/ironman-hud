@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>JARVIS VR HUD - Conditional YouTube Player</title>
+  <title>JARVIS VR HUD - Scalable 3D YouTube Player</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html {
@@ -27,7 +27,7 @@
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       padding: 20px;
       overflow-y: auto;
     }
@@ -89,8 +89,8 @@
     }
     .youtube-frame-wrapper {
       position: absolute;
-      width: 220px;
-      height: 130px;
+      width: 160px;   /* Made smaller by default */
+      height: 95px;
       border: 2px solid rgba(0, 240, 255, 0.8);
       box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
       background: rgba(0, 10, 20, 0.85);
@@ -106,17 +106,17 @@
     }
 
     .control-group {
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
       color: #fff; font-size: 0.8rem; width: 100%; max-width: 300px;
     }
     select, input[type=text] {
       background: #000; color: #00f0ff; border: 1px solid #00f0ff;
-      padding: 8px; border-radius: 4px; width: 100%; font-family: monospace;
+      padding: 6px; border-radius: 4px; width: 100%; font-family: monospace;
     }
     .lens-toggle { display: flex; gap: 8px; }
     .lens-btn {
       background: rgba(0, 240, 255, 0.1); border: 1px solid #00f0ff;
-      color: #00f0ff; padding: 6px 12px; font-size: 0.85rem;
+      color: #00f0ff; padding: 5px 10px; font-size: 0.8rem;
       border-radius: 4px; cursor: pointer;
     }
     .lens-btn.active { background: #00f0ff; color: #000; font-weight: bold; }
@@ -127,8 +127,8 @@
       width: 100%; accent-color: #00f0ff; cursor: pointer;
     }
     .gesture-info {
-      color: #00f0ff; font-size: 0.75rem; text-align: center;
-      border: 1px dashed rgba(0, 240, 255, 0.4); padding: 8px; border-radius: 4px;
+      color: #00f0ff; font-size: 0.7rem; text-align: center;
+      border: 1px dashed rgba(0, 240, 255, 0.4); padding: 6px; border-radius: 4px;
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
@@ -138,7 +138,7 @@
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.4rem; text-align: center;">MARK-LXXXV VR HUD<br>+ OPTIONAL MEDIA</h1>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.3rem; text-align: center;">MARK-LXXXV VR HUD</h1>
     
     <div class="control-group">
       <label for="cam-select">Camera Source:</label>
@@ -146,7 +146,7 @@
     </div>
 
     <div class="control-group">
-      <label for="yt-input">YouTube Video ID / URL (Leave blank to hide):</label>
+      <label for="yt-input">YouTube ID / URL (Leave blank to hide):</label>
       <input type="text" id="yt-input" placeholder="e.g. dQw4w9WgXcQ or blank">
     </div>
 
@@ -157,6 +157,12 @@
         <button class="lens-btn" data-zoom="1.0">1.0x</button>
         <button class="lens-btn" data-zoom="2.0">2.0x</button>
       </div>
+    </div>
+
+    <!-- Media Scale Slider -->
+    <div class="control-group">
+      <div class="slider-row"><span>YouTube Player Size:</span><span id="scale-val">1.0x</span></div>
+      <input type="range" id="scale-slider" min="0.4" max="2.0" value="1.0" step="0.1">
     </div>
 
     <div class="control-group">
@@ -170,8 +176,7 @@
     </div>
 
     <div class="gesture-info">
-      🖐️ <b>Open Palm Drag:</b> Move YouTube Box in 3D Space<br/>
-      👌 <b>Pinch:</b> Toggle Play/Pause | ✊ <b>Fist:</b> Resize Box
+      🖐️ <b>Open Hand Drag:</b> Move 3D Box | 👌 <b>Pinch:</b> Play/Pause
     </div>
 
     <button class="btn" id="start-btn">ENGAGE 3D VR HUD</button>
@@ -181,7 +186,6 @@
   <canvas id="ai-canvas" width="192" height="192"></canvas>
 
   <div id="vr-container">
-    <!-- Left Eye Viewport -->
     <div class="viewport">
       <canvas id="leftCanvas"></canvas>
       <div class="youtube-layer" id="yt-layer-left" style="display:none;">
@@ -190,7 +194,6 @@
         </div>
       </div>
     </div>
-    <!-- Right Eye Viewport -->
     <div class="viewport">
       <canvas id="rightCanvas"></canvas>
       <div class="youtube-layer" id="yt-layer-right" style="display:none;">
@@ -201,7 +204,6 @@
     </div>
   </div>
 
-  <!-- YouTube IFrame API -->
   <script src="https://www.youtube.com/iframe_api"></script>
 
   <script>
@@ -224,6 +226,8 @@
     const ipdVal = document.getElementById('ipd-val');
     const fovSlider = document.getElementById('fov-slider');
     const fovVal = document.getElementById('fov-val');
+    const scaleSlider = document.getElementById('scale-slider');
+    const scaleVal = document.getElementById('scale-val');
 
     const ytLayerLeft = document.getElementById('yt-layer-left');
     const ytLayerRight = document.getElementById('yt-layer-right');
@@ -263,7 +267,15 @@
     let targetZoom = 0.6;
     let isUserFacing = false;
 
-    let mediaBoxState = { x: 0, y: 0, scale: 1.0 };
+    let mediaBoxState = { x: 0, y: 0, scale: parseFloat(localStorage.getItem('hud_media_scale') || '1.0') };
+    scaleSlider.value = mediaBoxState.scale; scaleVal.innerText = mediaBoxState.scale + 'x';
+
+    scaleSlider.addEventListener('input', (e) => {
+      mediaBoxState.scale = parseFloat(e.target.value);
+      scaleVal.innerText = mediaBoxState.scale + 'x';
+      localStorage.setItem('hud_media_scale', mediaBoxState.scale);
+      updateYouTubeDOM3D();
+    });
 
     let userIPD = parseInt(localStorage.getItem('hud_ipd') || '0');
     let userFOV = parseFloat(localStorage.getItem('hud_fov') || '1.0');
@@ -372,10 +384,8 @@
       const thumbTip = landmarks[4];
       const indexTip = landmarks[8];
       const wrist = landmarks[0];
-      const middleTip = landmarks[12];
 
       const pinchDist = Math.hypot(thumbTip[0] - indexTip[0], thumbTip[1] - indexTip[1]);
-      const handExtension = Math.hypot(wrist[0] - middleTip[0], wrist[1] - middleTip[1]);
 
       const normX = (wrist[0] / 192 - 0.5) * 300;
       const normY = (wrist[1] / 192 - 0.5) * 200;
@@ -384,30 +394,22 @@
       mediaBoxState.y = normY;
       updateYouTubeDOM3D();
 
-      if (gestureCooldown) return;
+      if (gestureCooldown || pinchDist >= 12) return;
 
-      if (pinchDist < 12) {
-        gestureCooldown = true;
-        try {
-          if (ytPlayerLeft && typeof ytPlayerLeft.getPlayerState === 'function') {
-            const state = ytPlayerLeft.getPlayerState();
-            if (state === YT.PlayerState.PLAYING) {
-              ytPlayerLeft.pauseVideo(); ytPlayerRight.pauseVideo();
-              showNotification("MEDIA: PAUSED");
-            } else {
-              ytPlayerLeft.playVideo(); ytPlayerRight.playVideo();
-              showNotification("MEDIA: PLAYING");
-            }
+      gestureCooldown = true;
+      try {
+        if (ytPlayerLeft && typeof ytPlayerLeft.getPlayerState === 'function') {
+          const state = ytPlayerLeft.getPlayerState();
+          if (state === YT.PlayerState.PLAYING) {
+            ytPlayerLeft.pauseVideo(); ytPlayerRight.pauseVideo();
+            showNotification("MEDIA: PAUSED");
+          } else {
+            ytPlayerLeft.playVideo(); ytPlayerRight.playVideo();
+            showNotification("MEDIA: PLAYING");
           }
-        } catch(e) {}
-        setTimeout(() => { gestureCooldown = false; }, 1500);
-      } 
-      else if (handExtension > 70) {
-        gestureCooldown = true;
-        mediaBoxState.scale = mediaBoxState.scale === 1.0 ? 1.4 : 1.0;
-        showNotification(`MEDIA SCALE: ${mediaBoxState.scale}X`);
-        setTimeout(() => { gestureCooldown = false; }, 1500);
-      }
+        }
+      } catch(e) {}
+      setTimeout(() => { gestureCooldown = false; }, 1500);
     }
 
     function updateYouTubeDOM3D() {
@@ -686,6 +688,7 @@
       
       if (val) {
         initYouTubePlayers(val);
+        updateYouTubeDOM3D();
       } else {
         hasValidVideo = false;
         ytLayerLeft.style.display = 'none';
