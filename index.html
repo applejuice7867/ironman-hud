@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <title>JARVIS VR HUD - 3D YouTube Integration</title>
+  <title>JARVIS VR HUD - Conditional YouTube Player</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html {
@@ -82,7 +82,7 @@
       width: 50vw;
       height: 100vh;
       z-index: 2;
-      pointer-events: none; /* Let touch pass through to VR container if needed */
+      pointer-events: none;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -138,7 +138,7 @@
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.4rem; text-align: center;">JARVIS VR HUD<br>+ 3D MEDIA PLAYER</h1>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.4rem; text-align: center;">MARK-LXXXV VR HUD<br>+ OPTIONAL MEDIA</h1>
     
     <div class="control-group">
       <label for="cam-select">Camera Source:</label>
@@ -146,8 +146,8 @@
     </div>
 
     <div class="control-group">
-      <label for="yt-input">YouTube Video ID or URL:</label>
-      <input type="text" id="yt-input" value="dQw4w9WgXcQ" placeholder="e.g. dQw4w9WgXcQ">
+      <label for="yt-input">YouTube Video ID / URL (Leave blank to hide):</label>
+      <input type="text" id="yt-input" placeholder="e.g. dQw4w9WgXcQ or blank">
     </div>
 
     <div class="control-group">
@@ -184,7 +184,7 @@
     <!-- Left Eye Viewport -->
     <div class="viewport">
       <canvas id="leftCanvas"></canvas>
-      <div class="youtube-layer">
+      <div class="youtube-layer" id="yt-layer-left" style="display:none;">
         <div class="youtube-frame-wrapper" id="yt-wrapper-left">
           <div id="yt-player-left"></div>
         </div>
@@ -193,7 +193,7 @@
     <!-- Right Eye Viewport -->
     <div class="viewport">
       <canvas id="rightCanvas"></canvas>
-      <div class="youtube-layer">
+      <div class="youtube-layer" id="yt-layer-right" style="display:none;">
         <div class="youtube-frame-wrapper" id="yt-wrapper-right">
           <div id="yt-player-right"></div>
         </div>
@@ -225,25 +225,26 @@
     const fovSlider = document.getElementById('fov-slider');
     const fovVal = document.getElementById('fov-val');
 
+    const ytLayerLeft = document.getElementById('yt-layer-left');
+    const ytLayerRight = document.getElementById('yt-layer-right');
     const ytWrapperLeft = document.getElementById('yt-wrapper-left');
     const ytWrapperRight = document.getElementById('yt-wrapper-right');
 
     let ytPlayerLeft, ytPlayerRight;
-    let videoId = 'dQw4w9WgXcQ';
-
-    // YouTube API Callback
-    function onYouTubeIframeAPIReady() {
-      // Created programmatically once user starts
-    }
+    let hasValidVideo = false;
 
     function initYouTubePlayers(id) {
-      videoId = id;
+      if (!id) return;
+      hasValidVideo = true;
+      ytLayerLeft.style.display = 'flex';
+      ytLayerRight.style.display = 'flex';
+
       ytPlayerLeft = new YT.Player('yt-player-left', {
-        videoId: videoId,
+        videoId: id,
         playerVars: { 'autoplay': 1, 'controls': 1, 'playsinline': 1 }
       });
       ytPlayerRight = new YT.Player('yt-player-right', {
-        videoId: videoId,
+        videoId: id,
         playerVars: { 'autoplay': 1, 'controls': 1, 'playsinline': 1 }
       });
     }
@@ -262,7 +263,6 @@
     let targetZoom = 0.6;
     let isUserFacing = false;
 
-    // 3D Interactive Position State for YouTube Media Box
     let mediaBoxState = { x: 0, y: 0, scale: 1.0 };
 
     let userIPD = parseInt(localStorage.getItem('hud_ipd') || '0');
@@ -345,7 +345,7 @@
     let aiToggle = false;
 
     async function aiDetectionLoop(timestamp) {
-      if (timestamp - lastAITime > 400) { // Responsive polling for smooth 3D movement
+      if (timestamp - lastAITime > 400) {
         if (video.readyState === 4 && video.videoWidth > 0) {
           aiCtx.drawImage(video, 0, 0, 192, 192);
 
@@ -354,7 +354,7 @@
               predictions = await cocoModel.detect(aiCanvas, 3, 0.4);
             } else if (!aiToggle && handModel) {
               handPredictions = await handModel.estimateHands(aiCanvas);
-              processHandGestures(handPredictions);
+              if (hasValidVideo) processHandGestures(handPredictions);
             }
           } catch(e) {}
 
@@ -377,19 +377,15 @@
       const pinchDist = Math.hypot(thumbTip[0] - indexTip[0], thumbTip[1] - indexTip[1]);
       const handExtension = Math.hypot(wrist[0] - middleTip[0], wrist[1] - middleTip[1]);
 
-      // 3D Movement: Map palm center (wrist coordinates) to screen position offsets
-      const normX = (wrist[0] / 192 - 0.5) * 300; // Map to pixel range
+      const normX = (wrist[0] / 192 - 0.5) * 300;
       const normY = (wrist[1] / 192 - 0.5) * 200;
       
       mediaBoxState.x = normX;
       mediaBoxState.y = normY;
-
-      // Apply 3D Transform to YouTube Wrappers (Stereoscopic parallel shifts for depth)
       updateYouTubeDOM3D();
 
       if (gestureCooldown) return;
 
-      // Pinch: Toggle Play/Pause YouTube Video
       if (pinchDist < 12) {
         gestureCooldown = true;
         try {
@@ -406,7 +402,6 @@
         } catch(e) {}
         setTimeout(() => { gestureCooldown = false; }, 1500);
       } 
-      // Open Hand / Fist Extension: Scale depth size
       else if (handExtension > 70) {
         gestureCooldown = true;
         mediaBoxState.scale = mediaBoxState.scale === 1.0 ? 1.4 : 1.0;
@@ -416,7 +411,7 @@
     }
 
     function updateYouTubeDOM3D() {
-      // Add stereoscopic disparity offset for left and right eyes so the player floats in true 3D depth
+      if (!hasValidVideo) return;
       const baseTransform = `translate(${mediaBoxState.x}px, ${mediaBoxState.y}px) scale(${mediaBoxState.scale})`;
       ytWrapperLeft.style.transform = `translateX(-15px) ${baseTransform}`;
       ytWrapperRight.style.transform = `translateX(15px) ${baseTransform}`;
@@ -680,17 +675,23 @@
     startBtn.addEventListener('click', () => {
       goFullscreenAndLock();
       
-      // Extract video ID from input cleanly (handles raw IDs or full YouTube links)
       let val = ytInput.value.trim();
       if (val.includes('youtu.be/')) {
         val = val.split('youtu.be/')[1].split('?')[0];
       } else if (val.includes('watch?v=')) {
         val = val.split('watch?v=')[1].split('&')[0];
       }
-      if (!val) val = 'dQw4w9WgXcQ';
 
       startOverlay.style.display = 'none';
-      initYouTubePlayers(val);
+      
+      if (val) {
+        initYouTubePlayers(val);
+      } else {
+        hasValidVideo = false;
+        ytLayerLeft.style.display = 'none';
+        ytLayerRight.style.display = 'none';
+      }
+
       initSensors();
       startCamera(camSelect.value || null);
       initAI();
