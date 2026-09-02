@@ -342,6 +342,37 @@
     let notificationText = "";
     let notificationTimer = null;
     let gestureCooldown = false;
+    let currentTimeText = getCurrentTime();
+    let batteryLevel = null;
+    let batteryCharging = false;
+
+    function getCurrentTime() {
+      return new Date().toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+
+    setInterval(() => {
+      currentTimeText = getCurrentTime();
+    }, 1000);
+
+    async function initDeviceBattery() {
+      if (!navigator.getBattery) return;
+      try {
+        const battery = await navigator.getBattery();
+        const updateBattery = () => {
+          batteryLevel = Math.round(battery.level * 100);
+          batteryCharging = battery.charging;
+        };
+        updateBattery();
+        battery.addEventListener('levelchange', updateBattery);
+        battery.addEventListener('chargingchange', updateBattery);
+      } catch (e) {}
+    }
+
+    initDeviceBattery();
 
     let mapImage = new Image();
     let mapImageLoaded = false;
@@ -653,7 +684,19 @@
       ctx.fillText(`SYS: ONLINE`, leftX, cy - 35);
       ctx.fillText(`ALT: ${telemetry.alt}m`, leftX, cy - 23);
       ctx.fillText(`SPD: ${telemetry.speed}km/h`, leftX, cy - 11);
-      ctx.fillText(`LENS: ${targetZoom}X`, leftX, cy + 1);
+      const batteryLabel = batteryLevel === null ? 'BATT: --' : `BATT: ${batteryLevel}%`;
+      const batteryColor = batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
+      ctx.fillStyle = batteryColor;
+      ctx.fillText(batteryLabel, leftX, cy + 1);
+      ctx.strokeStyle = batteryColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(leftX + 42, cy - 6, 20, 8);
+      ctx.fillRect(leftX + 63, cy - 4, 2, 4);
+      if (batteryLevel !== null) {
+        ctx.fillRect(leftX + 44, cy - 4, 16 * batteryLevel / 100, 4);
+      }
+      ctx.fillStyle = primaryColor;
+      ctx.fillText(`TIME: ${currentTimeText}`, leftX, cy + 13);
       ctx.restore();
 
       ctx.save();
