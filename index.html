@@ -156,6 +156,17 @@
       color: #00f0ff; font-size: 0.7rem; text-align: center;
       border: 1px dashed rgba(0, 240, 255, 0.4); padding: 6px; border-radius: 4px;
     }
+    .assistant-info {
+      color: #7dff7d; font-size: 0.7rem; text-align: center;
+      border: 1px dashed rgba(125, 255, 125, 0.4); padding: 6px; border-radius: 4px;
+    }
+    #assistant-status {
+      position: fixed; left: 50%; bottom: 8%; transform: translateX(-50%);
+      z-index: 10; max-width: min(90vw, 420px); padding: 8px 12px;
+      color: #7dff7d; background: rgba(0, 10, 20, 0.78);
+      border: 1px solid rgba(125, 255, 125, 0.65); border-radius: 4px;
+      font: 9px 'Courier New', monospace; text-align: center; display: none;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -215,8 +226,13 @@
       <input type="range" id="ipd-slider" min="-60" max="60" value="0" step="1">
     </div>
 
-    <div class="gesture-info">
-      🖐️ <b>Open Hand Drag:</b> Move YouTube Box | 👌 <b>Pinch:</b> Play/Pause
+    <div class="control-group">
+      <label for="vision-key">Gemini Vision API Key (optional):</label>
+      <input type="password" id="vision-key" placeholder="For spoken visual questions">
+    </div>
+
+    <div class="assistant-info">
+      VOICE: “play”, “pause”, “skip” | “what am I looking at?”
     </div>
 
     <button class="btn" id="start-btn">ENGAGE VR HUD</button>
@@ -243,6 +259,7 @@
       </div>
     </div>
   </div>
+  <div id="assistant-status" aria-live="polite"></div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
 
@@ -271,6 +288,8 @@
     const hudScaleVal = document.getElementById('hud-scale-val');
     const scaleSlider = document.getElementById('scale-slider');
     const scaleVal = document.getElementById('scale-val');
+    const visionKeyInput = document.getElementById('vision-key');
+    const assistantStatus = document.getElementById('assistant-status');
 
     const ytLayerLeft = document.getElementById('yt-layer-left');
     const ytLayerRight = document.getElementById('yt-layer-right');
@@ -280,6 +299,11 @@
     let ytPlayer = null;
     let hasValidVideo = false;
     let targetYouTubeEye = localStorage.getItem('hud_yt_eye') || 'left';
+    let voiceRecognition = null;
+    let isVisionBusy = false;
+
+    visionKeyInput.value = sessionStorage.getItem('hud_vision_key') || '';
+    visionKeyInput.addEventListener('input', () => sessionStorage.setItem('hud_vision_key', visionKeyInput.value.trim()));
 
     eyeBtns.forEach(b => {
       if(b.dataset.eye === targetYouTubeEye) {
@@ -430,6 +454,104 @@
       notificationTimer = setTimeout(() => { notificationText = ""; }, 2000);
     }
 
+    function setAssistantStatus(message, speak = false) {
+      assistantStatus.textContent = message;
+      assistantStatus.style.display = message ? 'block' : 'none';
+      if (speak && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(message));
+      }
+    }
+
+    function controlYouTube(command) {
+      if (!ytPlayer || typeof ytPlayer.getPlayerState !== 'function') {
+        setAssistantStatus('MEDIA UNAVAILABLE', true);
+        return;
+      }
+      try {
+        if (command === 'play') ytPlayer.playVideo();
+        if (command === 'pause') ytPlayer.pauseVideo();
+        if (command === 'skip') ytPlayer.seekTo((ytPlayer.getCurrentTime() || 0) + 15, true);
+        const message = command === 'skip' ? 'SKIPPED AHEAD 15 SECONDS' : `MEDIA: ${command.toUpperCase()}`;
+        showNotification(message);
+        setAssistantStatus(message, true);
+      } catch (e) {
+        setAssistantStatus('MEDIA CONTROL FAILED', true);
+      }
+    }
+
+    async function answerVisualQuestion(question) {
+      const apiKey = visionKeyInput.value.trim();
+      if (!apiKey) {
+        setAssistantStatus('ADD A GEMINI API KEY FOR VISUAL QUESTIONS', true);
+        return;
+      }
+      if (isVisionBusy || video.readyState < 2) return;
+      isVisionBusy = true;
+      setAssistantStatus('ANALYZING CROSSHAIR VIEW...');
+      const questionCanvas = document.createElement('canvas');
+      const size = 512;
+      questionCanvas.width = size;
+      questionCanvas.height = size;
+      const questionContext = questionCanvas.getContext('2d');
+      const cropSize = Math.min(video.videoWidth, video.videoHeight) * 0.42;
+      questionContext.drawImage(
+        video,
+        (video.videoWidth - cropSize) / 2, (video.videoHeight - cropSize) / 2,
+        cropSize, cropSize, 0, 0, size, size
+      );
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [
+              { text: `Answer briefly, based only on this camera crop near the crosshair: ${question}` },
+              { inline_data: { mime_type: 'image/jpeg', data: questionCanvas.toDataURL('image/jpeg', 0.75).split(',')[1] } }
+            ] }]
+          })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || 'Vision request failed');
+        const answer = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'I could not identify anything clearly.';
+        setAssistantStatus(answer, true);
+      } catch (e) {
+        setAssistantStatus('VISION REQUEST FAILED', true);
+      } finally {
+        isVisionBusy = false;
+      }
+    }
+
+    function initVoiceAssistant() {
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!Recognition) {
+        setAssistantStatus('VOICE INPUT IS NOT SUPPORTED IN THIS BROWSER');
+        return;
+      }
+      voiceRecognition = new Recognition();
+      voiceRecognition.continuous = true;
+      voiceRecognition.interimResults = false;
+      voiceRecognition.lang = navigator.language || 'en-US';
+      voiceRecognition.onresult = event => {
+        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+        if (/\b(play|resume|start)\b/.test(transcript)) return controlYouTube('play');
+        if (/\b(pause|stop)\b/.test(transcript)) return controlYouTube('pause');
+        if (/\b(skip|skip ads|next)\b/.test(transcript)) return controlYouTube('skip');
+        answerVisualQuestion(transcript);
+      };
+      voiceRecognition.onend = () => {
+        if (voiceRecognition) {
+          try { voiceRecognition.start(); } catch (e) {}
+        }
+      };
+      try {
+        voiceRecognition.start();
+        setAssistantStatus('VOICE ONLINE');
+      } catch (e) {
+        setAssistantStatus('VOICE START FAILED');
+      }
+    }
+
     function resetOrientation() {
       orientationOffset.pitch = rawOrientation.pitch;
       orientationOffset.roll = rawOrientation.roll;
@@ -458,7 +580,6 @@
       await tf.setBackend('webgl');
       await tf.ready();
       cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-      handModel = await handpose.load();
       requestAnimationFrame(aiDetectionLoop);
     }
 
@@ -473,9 +594,8 @@
           try {
             if (aiToggle && cocoModel) {
               predictions = await cocoModel.detect(aiCanvas, 3, 0.4);
-            } else if (!aiToggle && handModel) {
-              handPredictions = await handModel.estimateHands(aiCanvas);
-              if (hasValidVideo) processHandGestures(handPredictions);
+            } else if (!aiToggle) {
+              handPredictions = [];
             }
           } catch(e) {}
 
@@ -886,6 +1006,7 @@
       initSensors();
       startCamera(camSelect.value || null);
       initAI();
+      initVoiceAssistant();
       requestAnimationFrame(renderLoop);
     });
 
