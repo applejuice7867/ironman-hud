@@ -655,6 +655,42 @@
       ctx.restore();
     }
 
+    function drawHeadingTape(ctx, centerX, topY, width, color) {
+      const heading = Number(telemetry.yaw) || 0;
+      const pixelsPerDegree = 2.2;
+      const halfWidth = width / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(centerX - halfWidth, topY, width, 34);
+      ctx.clip();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.lineWidth = 1;
+      ctx.font = '7px Courier New';
+      ctx.textAlign = 'center';
+      for (let offset = -90; offset <= 90; offset += 10) {
+        const degree = (Math.round(heading / 10) * 10 + offset + 360) % 360;
+        const x = centerX + (offset * pixelsPerDegree) - ((heading % 10) * pixelsPerDegree);
+        const tickHeight = degree % 30 === 0 ? 10 : 5;
+        ctx.beginPath();
+        ctx.moveTo(x, topY + 17);
+        ctx.lineTo(x, topY + 17 + tickHeight);
+        ctx.stroke();
+        if (degree % 30 === 0) ctx.fillText(`${degree}°`, x, topY + 11);
+      }
+      ctx.restore();
+      ctx.beginPath();
+      ctx.moveTo(centerX, topY + 13);
+      ctx.lineTo(centerX - 4, topY + 7);
+      ctx.lineTo(centerX + 4, topY + 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.font = 'bold 8px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(`HDG ${heading.toFixed(1)}°`, centerX, topY + 32);
+    }
+
     function drawHUD(ctx, width, height, eye) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, width * (window.devicePixelRatio || 1), height * (window.devicePixelRatio || 1));
@@ -732,35 +768,38 @@
       ctx.save();
       ctx.translate(pPanels, 0);
 
-      const leftX = cx - 64;
-      const rightX = cx + 64;
+      const leftX = Math.max(34, cx - 82);
+      const rightX = Math.min(width - 34, cx + 82);
       const batteryColor = batteryCharging
         ? '#7dff7d'
         : batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
-      drawGauge(ctx, leftX, cy - 12, 27, Number(telemetry.alt), 500, primaryColor, 'ALT m', `${telemetry.alt}`);
-      drawGauge(ctx, rightX, cy - 12, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD km/h', `${telemetry.speed}`);
+      drawGauge(ctx, leftX, cy + 22, 27, Number(telemetry.alt), 500, primaryColor, 'ALT m', `${telemetry.alt}`);
+      drawGauge(ctx, rightX, cy + 22, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD km/h', `${telemetry.speed}`);
 
       ctx.save();
-      const batteryY = cy - 76;
+      const batteryX = leftX;
+      const batteryY = cy - 48;
       ctx.fillStyle = primaryColor;
       ctx.font = 'bold 13px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText(`${batteryLevel === null ? '--' : batteryLevel}%`, cx, batteryY + 4);
+      ctx.fillText(`${batteryLevel === null ? '--' : batteryLevel}%`, batteryX, batteryY + 4);
       ctx.font = '7px Courier New';
-      ctx.fillText(batteryCharging ? 'CHARGING' : batteryAvailable ? 'POWER' : 'POWER N/A', cx, batteryY + 16);
+      ctx.fillText(batteryCharging ? 'CHARGING' : batteryAvailable ? 'POWER' : 'POWER N/A', batteryX, batteryY + 16);
       ctx.strokeStyle = batteryColor;
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, batteryY, 24, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(batteryX, batteryY, 24, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
 
       ctx.save();
       ctx.fillStyle = primaryColor;
       ctx.font = '7px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText(`HDG ${telemetry.yaw}°`, cx, cy + 40);
       ctx.fillText(currentTimeText, cx, cy + 50);
       ctx.restore();
       ctx.restore();
+
+      const pHeading = getParallax(2.8, eye);
+      drawHeadingTape(ctx, cx + pHeading, 16, Math.min(190, width - 24), primaryColor);
 
       const pMap = getParallax(2.5, eye);
       const mapRadius = 26;
