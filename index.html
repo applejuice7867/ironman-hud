@@ -633,7 +633,7 @@
 
     function getParallax(depthLevel, eye) { return (eye === 'left' ? 1 : -1) * depthLevel * 2.5; }
 
-    function drawGauge(ctx, x, y, radius, value, max, color, label) {
+    function drawGauge(ctx, x, y, radius, value, max, color, label, valueText) {
       const start = Math.PI * 0.75;
       const end = Math.PI * 2.25;
       const progress = Math.max(0, Math.min(1, value / max));
@@ -648,6 +648,9 @@
       ctx.font = '7px Courier New';
       ctx.fillStyle = color;
       ctx.textAlign = 'center';
+      ctx.font = 'bold 9px Courier New';
+      ctx.fillText(valueText, x, y + 3);
+      ctx.font = '7px Courier New';
       ctx.fillText(label, x, y + radius + 10);
       ctx.restore();
     }
@@ -734,19 +737,20 @@
       const batteryColor = batteryCharging
         ? '#7dff7d'
         : batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
-      drawGauge(ctx, leftX, cy - 12, 27, Number(telemetry.alt), 500, primaryColor, 'ALT');
-      drawGauge(ctx, rightX, cy - 12, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD');
+      drawGauge(ctx, leftX, cy - 12, 27, Number(telemetry.alt), 500, primaryColor, 'ALT m', `${telemetry.alt}`);
+      drawGauge(ctx, rightX, cy - 12, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD km/h', `${telemetry.speed}`);
 
       ctx.save();
+      const batteryY = cy - 76;
       ctx.fillStyle = primaryColor;
       ctx.font = 'bold 13px Courier New';
       ctx.textAlign = 'center';
-      ctx.fillText(`${batteryLevel === null ? '--' : batteryLevel}%`, cx, cy - 8);
+      ctx.fillText(`${batteryLevel === null ? '--' : batteryLevel}%`, cx, batteryY + 4);
       ctx.font = '7px Courier New';
-      ctx.fillText(batteryCharging ? 'CHARGING' : batteryAvailable ? 'POWER' : 'POWER N/A', cx, cy + 4);
+      ctx.fillText(batteryCharging ? 'CHARGING' : batteryAvailable ? 'POWER' : 'POWER N/A', cx, batteryY + 16);
       ctx.strokeStyle = batteryColor;
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(cx, cy - 12, 31, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, batteryY, 24, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
 
       ctx.save();
