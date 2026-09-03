@@ -31,6 +31,32 @@
       padding: 20px;
       overflow-y: auto;
     }
+    .boot-mark {
+      width: 112px;
+      height: 112px;
+      border: 1px solid rgba(0, 240, 255, 0.7);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      position: relative;
+      margin-bottom: 4px;
+      box-shadow: 0 0 22px rgba(0, 240, 255, 0.25), inset 0 0 22px rgba(0, 240, 255, 0.12);
+    }
+    .boot-mark::before, .boot-mark::after {
+      content: '';
+      position: absolute;
+      background: #00f0ff;
+      box-shadow: 0 0 8px #00f0ff;
+    }
+    .boot-mark::before { width: 1px; height: 132px; }
+    .boot-mark::after { width: 132px; height: 1px; }
+    .boot-core {
+      width: 34px;
+      height: 34px;
+      border: 2px solid #ff3300;
+      transform: rotate(45deg);
+      box-shadow: 0 0 14px rgba(255, 51, 0, 0.7);
+    }
     .btn {
       background: rgba(0, 240, 255, 0.1);
       border: 2px solid #00f0ff;
@@ -138,7 +164,8 @@
 <body>
 
   <div id="start-overlay">
-    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.3rem; text-align: center;">MARK-LXXXV VR HUD</h1>
+    <div class="boot-mark" aria-hidden="true"><div class="boot-core"></div></div>
+    <h1 style="color:#00f0ff; text-shadow: 0 0 10px #00f0ff; font-size: 1.1rem; text-align: center;">MARK-LXXXV</h1>
     
     <div class="control-group">
       <label for="cam-select">Camera Source:</label>
@@ -345,6 +372,7 @@
     let currentTimeText = getCurrentTime();
     let batteryLevel = null;
     let batteryCharging = false;
+    let batteryAvailable = false;
 
     function getCurrentTime() {
       return new Date().toLocaleTimeString('en-GB', {
@@ -359,9 +387,12 @@
     }, 1000);
 
     async function initDeviceBattery() {
-      if (!navigator.getBattery) return;
+      const getBattery = navigator.getBattery || (() => Promise.resolve(navigator.battery));
+      if (!getBattery) return;
       try {
-        const battery = await navigator.getBattery();
+        const battery = await getBattery.call(navigator);
+        if (!battery) return;
+        batteryAvailable = true;
         const updateBattery = () => {
           batteryLevel = Math.round(battery.level * 100);
           batteryCharging = battery.charging;
@@ -369,7 +400,9 @@
         updateBattery();
         battery.addEventListener('levelchange', updateBattery);
         battery.addEventListener('chargingchange', updateBattery);
-      } catch (e) {}
+      } catch (e) {
+        batteryAvailable = false;
+      }
     }
 
     initDeviceBattery();
@@ -600,6 +633,25 @@
 
     function getParallax(depthLevel, eye) { return (eye === 'left' ? 1 : -1) * depthLevel * 2.5; }
 
+    function drawGauge(ctx, x, y, radius, value, max, color, label) {
+      const start = Math.PI * 0.75;
+      const end = Math.PI * 2.25;
+      const progress = Math.max(0, Math.min(1, value / max));
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(0, 240, 255, 0.18)';
+      ctx.beginPath(); ctx.arc(x, y, radius, start, end); ctx.stroke();
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.beginPath(); ctx.arc(x, y, radius, start, start + (end - start) * progress); ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.font = '7px Courier New';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x, y + radius + 10);
+      ctx.restore();
+    }
+
     function drawHUD(ctx, width, height, eye) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, width * (window.devicePixelRatio || 1), height * (window.devicePixelRatio || 1));
@@ -677,37 +729,32 @@
       ctx.save();
       ctx.translate(pPanels, 0);
 
-      ctx.save();
-      ctx.transform(1, 0, -0.08, 1, 0, 0);
-      ctx.fillStyle = primaryColor; ctx.font = '8px Courier New';
-      const leftX = cx - 85;
-      ctx.fillText(`SYS: ONLINE`, leftX, cy - 35);
-      ctx.fillText(`ALT: ${telemetry.alt}m`, leftX, cy - 23);
-      ctx.fillText(`SPD: ${telemetry.speed}km/h`, leftX, cy - 11);
-      const batteryLabel = batteryLevel === null
-        ? 'BATT: --'
-        : `BATT: ${batteryLevel}%${batteryCharging ? ' CHG' : ''}`;
+      const leftX = cx - 64;
+      const rightX = cx + 64;
       const batteryColor = batteryCharging
         ? '#7dff7d'
         : batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
-      ctx.fillStyle = batteryColor;
-      ctx.fillText(batteryLabel, leftX, cy + 1);
-      ctx.strokeStyle = batteryColor;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(leftX + 42, cy - 6, 20, 8);
-      ctx.fillRect(leftX + 63, cy - 4, 2, 4);
-      if (batteryLevel !== null) {
-        ctx.fillRect(leftX + 44, cy - 4, 16 * batteryLevel / 100, 4);
-      }
+      drawGauge(ctx, leftX, cy - 12, 27, Number(telemetry.alt), 500, primaryColor, 'ALT');
+      drawGauge(ctx, rightX, cy - 12, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD');
+
+      ctx.save();
       ctx.fillStyle = primaryColor;
-      ctx.fillText(`TIME: ${currentTimeText}`, leftX, cy + 13);
+      ctx.font = 'bold 13px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${batteryLevel === null ? '--' : batteryLevel}%`, cx, cy - 8);
+      ctx.font = '7px Courier New';
+      ctx.fillText(batteryCharging ? 'CHARGING' : batteryAvailable ? 'POWER' : 'POWER N/A', cx, cy + 4);
+      ctx.strokeStyle = batteryColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy - 12, 31, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
 
       ctx.save();
-      ctx.transform(1, 0, 0.08, 1, 0, 0);
-      const rightX = cx + 25;
-      ctx.fillText(`HDG: ${telemetry.yaw}°`, rightX, cy - 35);
-      ctx.fillText(`FPS: 60`, rightX, cy - 23);
+      ctx.fillStyle = primaryColor;
+      ctx.font = '7px Courier New';
+      ctx.textAlign = 'center';
+      ctx.fillText(`HDG ${telemetry.yaw}°`, cx, cy + 40);
+      ctx.fillText(currentTimeText, cx, cy + 50);
       ctx.restore();
       ctx.restore();
 
