@@ -769,12 +769,12 @@
       ctx.translate(pPanels, 0);
 
       const leftX = Math.max(34, cx - 82);
-      const rightX = Math.min(width - 34, cx + 82);
       const batteryColor = batteryCharging
         ? '#7dff7d'
         : batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
+      drawHeadingTape(ctx, cx, cy - 108, Math.min(190, width - 24), primaryColor);
       drawGauge(ctx, leftX, cy + 22, 27, Number(telemetry.alt), 500, primaryColor, 'ALT m', `${telemetry.alt}`);
-      drawGauge(ctx, rightX, cy + 22, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD km/h', `${telemetry.speed}`);
+      drawGauge(ctx, cx + 50, cy - 52, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD km/h', `${telemetry.speed}`);
 
       ctx.save();
       const batteryX = leftX;
@@ -797,9 +797,6 @@
       ctx.fillText(currentTimeText, cx, cy + 50);
       ctx.restore();
       ctx.restore();
-
-      const pHeading = getParallax(2.8, eye);
-      drawHeadingTape(ctx, cx + pHeading, 16, Math.min(190, width - 24), primaryColor);
 
       const pMap = getParallax(2.5, eye);
       const mapRadius = 26;
