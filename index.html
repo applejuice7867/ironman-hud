@@ -168,23 +168,28 @@
       font: 9px 'Courier New', monospace; text-align: center; display: none;
     }
     #setup-overlay {
-      position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
-      background: rgba(0, 5, 15, 0.72); pointer-events: none;
+      position: fixed; inset: 0; z-index: 20; display: none;
+      background: rgba(0, 5, 15, 0.82); pointer-events: none;
     }
-    .setup-panel { width: min(82vw, 320px); text-align: center; color: #00f0ff; }
+    .setup-eye { width: 50vw; height: 100vh; display: grid; place-items: center; perspective: 700px; }
+    .setup-eye:first-child { border-right: 1px solid rgba(0, 240, 255, 0.2); }
+    .setup-panel { width: min(82%, 260px); text-align: center; color: #00f0ff; transform-style: preserve-3d; animation: setup-float 4s ease-in-out infinite; }
+    .setup-eye:last-child .setup-panel { animation-delay: -1.2s; }
     .setup-orbit {
       width: 116px; height: 116px; margin: 0 auto 18px; border: 1px solid rgba(0, 240, 255, 0.35);
-      border-top-color: #00f0ff; border-radius: 50%; animation: setup-spin 1.6s linear infinite;
+      border-top-color: #00f0ff; border-radius: 50%; animation: setup-spin 1.6s linear infinite; transform-style: preserve-3d;
       box-shadow: 0 0 24px rgba(0, 240, 255, 0.3), inset 0 0 18px rgba(0, 240, 255, 0.18);
       display: grid; place-items: center;
     }
-    .setup-orbit::after { content: ''; width: 38px; height: 38px; border: 2px solid #ff3300; transform: rotate(45deg); animation: setup-pulse 1s ease-in-out infinite alternate; }
+    .setup-orbit::before { content: ''; position: absolute; width: 82px; height: 82px; border: 1px solid rgba(125, 255, 125, 0.7); border-radius: 50%; transform: translateZ(38px) rotateX(65deg); }
+    .setup-orbit::after { content: ''; width: 38px; height: 38px; border: 2px solid #ff3300; transform: translateZ(58px) rotate(45deg); animation: setup-pulse 1s ease-in-out infinite alternate; }
     .setup-title { font-size: 11px; letter-spacing: 2px; }
     .setup-stage { margin-top: 8px; font-size: 8px; color: #7dff7d; min-height: 12px; }
     .setup-track { height: 2px; margin-top: 16px; background: rgba(0, 240, 255, 0.18); overflow: hidden; }
     .setup-progress { height: 100%; width: 0; background: #00f0ff; box-shadow: 0 0 8px #00f0ff; }
     @keyframes setup-spin { to { transform: rotate(360deg); } }
     @keyframes setup-pulse { to { transform: rotate(135deg) scale(0.65); opacity: 0.45; } }
+    @keyframes setup-float { 0%, 100% { transform: rotateX(5deg) rotateY(-8deg) translateY(0); } 50% { transform: rotateX(-5deg) rotateY(8deg) translateY(-10px); } }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -279,11 +284,21 @@
   </div>
   <div id="assistant-status" aria-live="polite"></div>
   <div id="setup-overlay" aria-live="polite">
-    <div class="setup-panel">
-      <div class="setup-orbit"></div>
-      <div class="setup-title">VR SYSTEM CALIBRATION</div>
-      <div class="setup-stage" id="setup-stage">ALIGNING OPTICAL SENSORS</div>
-      <div class="setup-track"><div class="setup-progress" id="setup-progress"></div></div>
+    <div class="setup-eye">
+      <div class="setup-panel">
+        <div class="setup-orbit"></div>
+        <div class="setup-title">VR SYSTEM CALIBRATION</div>
+        <div class="setup-stage" id="setup-stage-left">ALIGNING OPTICAL SENSORS</div>
+        <div class="setup-track"><div class="setup-progress" id="setup-progress-left"></div></div>
+      </div>
+    </div>
+    <div class="setup-eye">
+      <div class="setup-panel">
+        <div class="setup-orbit"></div>
+        <div class="setup-title">VR SYSTEM CALIBRATION</div>
+        <div class="setup-stage" id="setup-stage-right">ALIGNING OPTICAL SENSORS</div>
+        <div class="setup-track"><div class="setup-progress" id="setup-progress-right"></div></div>
+      </div>
     </div>
   </div>
 
@@ -317,8 +332,9 @@
     const visionKeyInput = document.getElementById('vision-key');
     const assistantStatus = document.getElementById('assistant-status');
     const setupOverlay = document.getElementById('setup-overlay');
-    const setupStage = document.getElementById('setup-stage');
-    const setupProgress = document.getElementById('setup-progress');
+    const setupStages = [document.getElementById('setup-stage-left'), document.getElementById('setup-stage-right')];
+    const setupProgressBars = [document.getElementById('setup-progress-left'), document.getElementById('setup-progress-right')];
+    let hudReveal = 0;
 
     const ytLayerLeft = document.getElementById('yt-layer-left');
     const ytLayerRight = document.getElementById('yt-layer-right');
@@ -726,14 +742,21 @@
 
     function startDelayedSetup() {
       window.setTimeout(() => {
-        setupOverlay.style.display = 'grid';
+        setupOverlay.style.display = 'flex';
         const startedAt = performance.now();
         const stages = ['ALIGNING OPTICAL SENSORS', 'SYNCING HEAD TRACKING', 'STABILIZING HUD TELEMETRY', 'VR LINK READY'];
+        let cameraStarted = false;
         function animateSetup(now) {
           const elapsed = now - startedAt;
           const progress = Math.min(elapsed / 20000, 1);
-          setupProgress.style.width = `${progress * 100}%`;
-          setupStage.textContent = stages[Math.min(stages.length - 1, Math.floor(progress * stages.length))];
+          if (!cameraStarted && elapsed >= 7000) {
+            cameraStarted = true;
+            startCamera(camSelect.value || null);
+          }
+          hudReveal = Math.max(0, Math.min(1, (elapsed - 7000) / 13000));
+          const stage = stages[Math.min(stages.length - 1, Math.floor(progress * stages.length))];
+          setupProgressBars.forEach(progressBar => { progressBar.style.width = `${progress * 100}%`; });
+          setupStages.forEach(stageLabel => { stageLabel.textContent = stage; });
           if (progress < 1) requestAnimationFrame(animateSetup);
           else window.setTimeout(() => { setupOverlay.style.display = 'none'; }, 300);
         }
@@ -900,6 +923,7 @@
       ctx.translate(width / 2, height / 2);
       ctx.scale(userHUDScale, userHUDScale);
       ctx.translate(-width / 2, -height / 2);
+      ctx.globalAlpha = hudReveal;
       ctx.translate(cx + smoothOrientation.yaw * 0.12, cy + smoothOrientation.pitch * 0.12);
       ctx.rotate((smoothOrientation.roll * Math.PI) / 180 * 0.035);
       ctx.translate(-cx, -cy);
@@ -1016,6 +1040,7 @@
       }
       
       ctx.restore();
+      ctx.globalAlpha = 1;
     }
 
     function renderLoop() {
@@ -1063,7 +1088,6 @@
       }
 
       initSensors();
-      startCamera(camSelect.value || null);
       initAI();
       initVoiceAssistant();
       startDelayedSetup();
