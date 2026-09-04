@@ -21,19 +21,10 @@ A browser-based monocular VR HUD inspired by an Iron Man-style heads-up display.
 <!-- Replace this placeholder with a controls or UI screenshot. -->
 ![HUD controls](docs/images/hud-controls.png)
 
-## Run Locally
+## Using Normally
 
-This project has no build step or package manager. Serve the project directory over a local web server so browser camera and sensor APIs can work correctly.
+Through github pages this project already is hosted, go to [Clickable Text Here]  (https://applejuice7867.github.io/ironman-hud/)
 
-For example, with Python installed:
-
-```bash
-python3 -m http.server 8000
-```
-
-Then open [http://localhost:8000](http://localhost:8000) in a supported browser.
-
-You can also use any static-file server or the VS Code Live Server extension.
 
 ## Getting Started
 
