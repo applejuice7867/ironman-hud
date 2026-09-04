@@ -381,7 +381,6 @@
     
     let rawOrientation = { pitch: 0, roll: 0, yaw: 0 };
     let orientationOffset = { pitch: 0, roll: 0, yaw: 0 };
-    let smoothOrientation = { pitch: 0, roll: 0, yaw: 0 };
     let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 22.2855, lon: 114.1577, alt: 124.5, speed: 0.0 };
     
     let currentStream = null;
@@ -721,14 +720,6 @@
       telemetry.yaw = ((rawOrientation.yaw - orientationOffset.yaw + 360) % 360).toFixed(1);
     }
 
-    function updateSmoothOrientation() {
-      const targetYaw = Number(telemetry.yaw) || 0;
-      const yawDelta = ((targetYaw - smoothOrientation.yaw + 540) % 360) - 180;
-      smoothOrientation.pitch += (Number(telemetry.pitch) - smoothOrientation.pitch) * 0.12;
-      smoothOrientation.roll += (Number(telemetry.roll) - smoothOrientation.roll) * 0.12;
-      smoothOrientation.yaw = (smoothOrientation.yaw + yawDelta * 0.12 + 360) % 360;
-    }
-
     function easedReveal(progress, start, end) {
       const value = Math.max(0, Math.min(1, (progress - start) / (end - start)));
       return value * value * (3 - 2 * value);
@@ -939,10 +930,6 @@
       const cx = width / 2;
       const cy = height / 2;
 
-      ctx.translate(cx + smoothOrientation.yaw * 0.12, cy + smoothOrientation.pitch * 0.12);
-      ctx.rotate((smoothOrientation.roll * Math.PI) / 180 * 0.035);
-      ctx.translate(-cx, -cy);
-
       ctx.shadowBlur = 6;
       ctx.shadowColor = primaryColor;
       ctx.strokeStyle = primaryColor;
@@ -1046,6 +1033,9 @@
       ctx.globalAlpha = reticleReveal;
       ctx.translate(0, (1 - reticleReveal) * 4);
       ctx.translate(pReticle, 0);
+      ctx.strokeStyle = primaryColor;
+      ctx.fillStyle = primaryColor;
+      ctx.shadowColor = primaryColor;
       ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill();
 
@@ -1071,7 +1061,6 @@
       const cssW = window.innerWidth / 2;
       const cssH = window.innerHeight;
       if (cssW > 0 && cssH > 0) {
-        updateSmoothOrientation();
         drawHUD(leftCtx, cssW, cssH, 'left');
         drawHUD(rightCtx, cssW, cssH, 'right');
       }
