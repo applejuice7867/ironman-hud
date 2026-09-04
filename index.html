@@ -346,6 +346,7 @@
     let targetYouTubeEye = localStorage.getItem('hud_yt_eye') || 'left';
     let voiceRecognition = null;
     let isVisionBusy = false;
+    let cameraVisible = false;
 
     visionKeyInput.value = sessionStorage.getItem('hud_vision_key') || '';
     visionKeyInput.addEventListener('input', () => sessionStorage.setItem('hud_vision_key', visionKeyInput.value.trim()));
@@ -751,7 +752,7 @@
           const progress = Math.min(elapsed / 20000, 1);
           if (!cameraStarted && elapsed >= 7000) {
             cameraStarted = true;
-            startCamera(camSelect.value || null);
+            cameraVisible = true;
           }
           hudReveal = Math.max(0, Math.min(1, (elapsed - 7000) / 13000));
           const stage = stages[Math.min(stages.length - 1, Math.floor(progress * stages.length))];
@@ -916,7 +917,20 @@
 
       ctx.save();
       if (isUserFacing) { ctx.translate(width, 0); ctx.scale(-1, 1); }
-      ctx.drawImage(video, xOffset, yOffset, renderW, renderH);
+      if (cameraVisible && video.readyState >= 2 && video.videoWidth > 0) {
+        ctx.drawImage(video, xOffset, yOffset, renderW, renderH);
+      } else {
+        ctx.fillStyle = '#000a12';
+        ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = 'rgba(0, 240, 255, 0.12)';
+        ctx.lineWidth = 1;
+        for (let gridX = 0; gridX < width; gridX += 32) {
+          ctx.beginPath(); ctx.moveTo(gridX, 0); ctx.lineTo(gridX, height); ctx.stroke();
+        }
+        for (let gridY = 0; gridY < height; gridY += 32) {
+          ctx.beginPath(); ctx.moveTo(0, gridY); ctx.lineTo(width, gridY); ctx.stroke();
+        }
+      }
       ctx.restore();
 
       // Apply independent HUD scale factor to all vector elements
@@ -1088,6 +1102,7 @@
       }
 
       initSensors();
+      startCamera(camSelect.value || null);
       initAI();
       initVoiceAssistant();
       startDelayedSetup();
