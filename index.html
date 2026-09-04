@@ -169,26 +169,16 @@
     }
     #setup-overlay {
       position: fixed; inset: 0; z-index: 20; display: none;
-      background: rgba(0, 5, 15, 0.82); pointer-events: none;
+      background: transparent; pointer-events: none;
     }
     .setup-eye { width: 50vw; height: 100vh; display: grid; place-items: center; perspective: 700px; }
     .setup-eye:first-child { border-right: 1px solid rgba(0, 240, 255, 0.2); }
-    .setup-panel { width: min(82%, 260px); text-align: center; color: #00f0ff; transform-style: preserve-3d; animation: setup-float 4s ease-in-out infinite; }
+    .setup-panel { width: min(82%, 210px); padding: 8px; text-align: center; color: #00f0ff; transform-style: preserve-3d; animation: setup-float 4s ease-in-out infinite; }
     .setup-eye:last-child .setup-panel { animation-delay: -1.2s; }
-    .setup-orbit {
-      width: 116px; height: 116px; margin: 0 auto 18px; border: 1px solid rgba(0, 240, 255, 0.35);
-      border-top-color: #00f0ff; border-radius: 50%; animation: setup-spin 1.6s linear infinite; transform-style: preserve-3d;
-      box-shadow: 0 0 24px rgba(0, 240, 255, 0.3), inset 0 0 18px rgba(0, 240, 255, 0.18);
-      display: grid; place-items: center;
-    }
-    .setup-orbit::before { content: ''; position: absolute; width: 82px; height: 82px; border: 1px solid rgba(125, 255, 125, 0.7); border-radius: 50%; transform: translateZ(38px) rotateX(65deg); }
-    .setup-orbit::after { content: ''; width: 38px; height: 38px; border: 2px solid #ff3300; transform: translateZ(58px) rotate(45deg); animation: setup-pulse 1s ease-in-out infinite alternate; }
-    .setup-title { font-size: 11px; letter-spacing: 2px; }
+    .setup-title { font-size: 8px; letter-spacing: 1px; }
     .setup-stage { margin-top: 8px; font-size: 8px; color: #7dff7d; min-height: 12px; }
-    .setup-track { height: 2px; margin-top: 16px; background: rgba(0, 240, 255, 0.18); overflow: hidden; }
+    .setup-track { height: 2px; margin-top: 10px; background: rgba(0, 240, 255, 0.18); overflow: hidden; }
     .setup-progress { height: 100%; width: 0; background: #00f0ff; box-shadow: 0 0 8px #00f0ff; }
-    @keyframes setup-spin { to { transform: rotate(360deg); } }
-    @keyframes setup-pulse { to { transform: rotate(135deg) scale(0.65); opacity: 0.45; } }
     @keyframes setup-float { 0%, 100% { transform: rotateX(5deg) rotateY(-8deg) translateY(0); } 50% { transform: rotateX(-5deg) rotateY(8deg) translateY(-10px); } }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
@@ -286,7 +276,6 @@
   <div id="setup-overlay" aria-live="polite">
     <div class="setup-eye">
       <div class="setup-panel">
-        <div class="setup-orbit"></div>
         <div class="setup-title">VR SYSTEM CALIBRATION</div>
         <div class="setup-stage" id="setup-stage-left">ALIGNING OPTICAL SENSORS</div>
         <div class="setup-track"><div class="setup-progress" id="setup-progress-left"></div></div>
@@ -294,7 +283,6 @@
     </div>
     <div class="setup-eye">
       <div class="setup-panel">
-        <div class="setup-orbit"></div>
         <div class="setup-title">VR SYSTEM CALIBRATION</div>
         <div class="setup-stage" id="setup-stage-right">ALIGNING OPTICAL SENSORS</div>
         <div class="setup-track"><div class="setup-progress" id="setup-progress-right"></div></div>
@@ -346,7 +334,7 @@
     let targetYouTubeEye = localStorage.getItem('hud_yt_eye') || 'left';
     let voiceRecognition = null;
     let isVisionBusy = false;
-    let cameraVisible = false;
+    let cameraVisible = true;
 
     visionKeyInput.value = sessionStorage.getItem('hud_vision_key') || '';
     visionKeyInput.addEventListener('input', () => sessionStorage.setItem('hud_vision_key', visionKeyInput.value.trim()));
@@ -741,6 +729,11 @@
       smoothOrientation.yaw = (smoothOrientation.yaw + yawDelta * 0.12 + 360) % 360;
     }
 
+    function easedReveal(progress, start, end) {
+      const value = Math.max(0, Math.min(1, (progress - start) / (end - start)));
+      return value * value * (3 - 2 * value);
+    }
+
     function startDelayedSetup() {
       window.setTimeout(() => {
         setupOverlay.style.display = 'flex';
@@ -752,7 +745,6 @@
           const progress = Math.min(elapsed / 20000, 1);
           if (!cameraStarted && elapsed >= 7000) {
             cameraStarted = true;
-            cameraVisible = true;
           }
           hudReveal = Math.max(0, Math.min(1, (elapsed - 7000) / 13000));
           const stage = stages[Math.min(stages.length - 1, Math.floor(progress * stages.length))];
@@ -937,15 +929,19 @@
       ctx.translate(width / 2, height / 2);
       ctx.scale(userHUDScale, userHUDScale);
       ctx.translate(-width / 2, -height / 2);
-      ctx.globalAlpha = hudReveal;
-      ctx.translate(cx + smoothOrientation.yaw * 0.12, cy + smoothOrientation.pitch * 0.12);
-      ctx.rotate((smoothOrientation.roll * Math.PI) / 180 * 0.035);
-      ctx.translate(-cx, -cy);
+      const headingReveal = easedReveal(hudReveal, 0, 0.42);
+      const gaugesReveal = easedReveal(hudReveal, 0.16, 0.62);
+      const mapReveal = easedReveal(hudReveal, 0.34, 0.82);
+      const reticleReveal = easedReveal(hudReveal, 0.52, 1);
 
       const primaryColor = '#00f0ff';
       const secondaryColor = '#ff3300';
       const cx = width / 2;
       const cy = height / 2;
+
+      ctx.translate(cx + smoothOrientation.yaw * 0.12, cy + smoothOrientation.pitch * 0.12);
+      ctx.rotate((smoothOrientation.roll * Math.PI) / 180 * 0.035);
+      ctx.translate(-cx, -cy);
 
       ctx.shadowBlur = 6;
       ctx.shadowColor = primaryColor;
@@ -988,7 +984,14 @@
       const batteryColor = batteryCharging
         ? '#7dff7d'
         : batteryLevel !== null && batteryLevel <= 20 ? secondaryColor : primaryColor;
+      ctx.save();
+      ctx.globalAlpha = headingReveal;
+      ctx.translate(0, (1 - headingReveal) * -12);
       drawHeadingTape(ctx, cx, cy - 108, Math.min(190, width - 24), primaryColor);
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = gaugesReveal;
+      ctx.translate(0, (1 - gaugesReveal) * 10);
       drawGauge(ctx, leftX, cy + 22, 27, Number(telemetry.alt), 500, primaryColor, 'ALT m', `${telemetry.alt}`);
       drawGauge(ctx, cx + 50, cy - 52, 27, Number(telemetry.speed), 120, secondaryColor, 'SPD km/h', `${telemetry.speed}`);
 
@@ -1005,8 +1008,11 @@
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(batteryX, batteryY, 24, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
+      ctx.restore();
 
       ctx.save();
+      ctx.globalAlpha = mapReveal;
+      ctx.translate(0, (1 - mapReveal) * 8);
       ctx.fillStyle = primaryColor;
       ctx.font = '7px Courier New';
       ctx.textAlign = 'center';
@@ -1020,6 +1026,8 @@
       const mapY = cy + 22;
 
       ctx.save();
+      ctx.globalAlpha = mapReveal;
+      ctx.translate(0, (1 - mapReveal) * 8);
       ctx.beginPath(); ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2); ctx.clip();
       if (mapImageLoaded) {
         ctx.drawImage(mapImage, mapX - mapRadius, mapY - mapRadius, mapRadius * 2, mapRadius * 2);
@@ -1031,9 +1039,12 @@
       ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(mapX, mapY, mapRadius, 0, Math.PI * 2); ctx.stroke();
       ctx.fillStyle = secondaryColor; ctx.beginPath(); ctx.arc(mapX, mapY, 2.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = primaryColor; ctx.font = '7px Courier New'; ctx.fillText('SAT-NAV', mapX - 14, mapY + mapRadius + 8);
+      ctx.restore();
 
       const pReticle = getParallax(3.2, eye);
       ctx.save();
+      ctx.globalAlpha = reticleReveal;
+      ctx.translate(0, (1 - reticleReveal) * 4);
       ctx.translate(pReticle, 0);
       ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI * 2); ctx.fill();
@@ -1054,7 +1065,6 @@
       }
       
       ctx.restore();
-      ctx.globalAlpha = 1;
     }
 
     function renderLoop() {
