@@ -167,6 +167,24 @@
       border: 1px solid rgba(125, 255, 125, 0.65); border-radius: 4px;
       font: 9px 'Courier New', monospace; text-align: center; display: none;
     }
+    #setup-overlay {
+      position: fixed; inset: 0; z-index: 20; display: none; place-items: center;
+      background: rgba(0, 5, 15, 0.72); pointer-events: none;
+    }
+    .setup-panel { width: min(82vw, 320px); text-align: center; color: #00f0ff; }
+    .setup-orbit {
+      width: 116px; height: 116px; margin: 0 auto 18px; border: 1px solid rgba(0, 240, 255, 0.35);
+      border-top-color: #00f0ff; border-radius: 50%; animation: setup-spin 1.6s linear infinite;
+      box-shadow: 0 0 24px rgba(0, 240, 255, 0.3), inset 0 0 18px rgba(0, 240, 255, 0.18);
+      display: grid; place-items: center;
+    }
+    .setup-orbit::after { content: ''; width: 38px; height: 38px; border: 2px solid #ff3300; transform: rotate(45deg); animation: setup-pulse 1s ease-in-out infinite alternate; }
+    .setup-title { font-size: 11px; letter-spacing: 2px; }
+    .setup-stage { margin-top: 8px; font-size: 8px; color: #7dff7d; min-height: 12px; }
+    .setup-track { height: 2px; margin-top: 16px; background: rgba(0, 240, 255, 0.18); overflow: hidden; }
+    .setup-progress { height: 100%; width: 0; background: #00f0ff; box-shadow: 0 0 8px #00f0ff; }
+    @keyframes setup-spin { to { transform: rotate(360deg); } }
+    @keyframes setup-pulse { to { transform: rotate(135deg) scale(0.65); opacity: 0.45; } }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -260,6 +278,14 @@
     </div>
   </div>
   <div id="assistant-status" aria-live="polite"></div>
+  <div id="setup-overlay" aria-live="polite">
+    <div class="setup-panel">
+      <div class="setup-orbit"></div>
+      <div class="setup-title">VR SYSTEM CALIBRATION</div>
+      <div class="setup-stage" id="setup-stage">ALIGNING OPTICAL SENSORS</div>
+      <div class="setup-track"><div class="setup-progress" id="setup-progress"></div></div>
+    </div>
+  </div>
 
   <script src="https://www.youtube.com/iframe_api"></script>
 
@@ -290,6 +316,9 @@
     const scaleVal = document.getElementById('scale-val');
     const visionKeyInput = document.getElementById('vision-key');
     const assistantStatus = document.getElementById('assistant-status');
+    const setupOverlay = document.getElementById('setup-overlay');
+    const setupStage = document.getElementById('setup-stage');
+    const setupProgress = document.getElementById('setup-progress');
 
     const ytLayerLeft = document.getElementById('yt-layer-left');
     const ytLayerRight = document.getElementById('yt-layer-right');
@@ -347,6 +376,7 @@
     
     let rawOrientation = { pitch: 0, roll: 0, yaw: 0 };
     let orientationOffset = { pitch: 0, roll: 0, yaw: 0 };
+    let smoothOrientation = { pitch: 0, roll: 0, yaw: 0 };
     let telemetry = { pitch: 0, roll: 0, yaw: 0, lat: 22.2855, lon: 114.1577, alt: 124.5, speed: 0.0 };
     
     let currentStream = null;
@@ -686,6 +716,31 @@
       telemetry.yaw = ((rawOrientation.yaw - orientationOffset.yaw + 360) % 360).toFixed(1);
     }
 
+    function updateSmoothOrientation() {
+      const targetYaw = Number(telemetry.yaw) || 0;
+      const yawDelta = ((targetYaw - smoothOrientation.yaw + 540) % 360) - 180;
+      smoothOrientation.pitch += (Number(telemetry.pitch) - smoothOrientation.pitch) * 0.12;
+      smoothOrientation.roll += (Number(telemetry.roll) - smoothOrientation.roll) * 0.12;
+      smoothOrientation.yaw = (smoothOrientation.yaw + yawDelta * 0.12 + 360) % 360;
+    }
+
+    function startDelayedSetup() {
+      window.setTimeout(() => {
+        setupOverlay.style.display = 'grid';
+        const startedAt = performance.now();
+        const stages = ['ALIGNING OPTICAL SENSORS', 'SYNCING HEAD TRACKING', 'STABILIZING HUD TELEMETRY', 'VR LINK READY'];
+        function animateSetup(now) {
+          const elapsed = now - startedAt;
+          const progress = Math.min(elapsed / 20000, 1);
+          setupProgress.style.width = `${progress * 100}%`;
+          setupStage.textContent = stages[Math.min(stages.length - 1, Math.floor(progress * stages.length))];
+          if (progress < 1) requestAnimationFrame(animateSetup);
+          else window.setTimeout(() => { setupOverlay.style.display = 'none'; }, 300);
+        }
+        requestAnimationFrame(animateSetup);
+      }, 5000);
+    }
+
     async function populateCameras() {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -845,6 +900,9 @@
       ctx.translate(width / 2, height / 2);
       ctx.scale(userHUDScale, userHUDScale);
       ctx.translate(-width / 2, -height / 2);
+      ctx.translate(cx + smoothOrientation.yaw * 0.12, cy + smoothOrientation.pitch * 0.12);
+      ctx.rotate((smoothOrientation.roll * Math.PI) / 180 * 0.035);
+      ctx.translate(-cx, -cy);
 
       const primaryColor = '#00f0ff';
       const secondaryColor = '#ff3300';
@@ -964,6 +1022,7 @@
       const cssW = window.innerWidth / 2;
       const cssH = window.innerHeight;
       if (cssW > 0 && cssH > 0) {
+        updateSmoothOrientation();
         drawHUD(leftCtx, cssW, cssH, 'left');
         drawHUD(rightCtx, cssW, cssH, 'right');
       }
@@ -1007,6 +1066,7 @@
       startCamera(camSelect.value || null);
       initAI();
       initVoiceAssistant();
+      startDelayedSetup();
       requestAnimationFrame(renderLoop);
     });
 
