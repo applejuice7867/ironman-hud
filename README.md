@@ -23,7 +23,7 @@ A browser-based monocular VR HUD inspired by an Iron Man-style heads-up display.
 
 ## Using Normally
 
-Through github pages this project already is hosted, go to [Clickable Text Here]  (https://applejuice7867.github.io/ironman-hud/)
+Through github pages this project already is hosted, go to [the website]  (https://applejuice7867.github.io/ironman-hud/)
 
 
 ## Getting Started
